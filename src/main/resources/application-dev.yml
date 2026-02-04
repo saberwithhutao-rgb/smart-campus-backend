@@ -1,0 +1,23 @@
+# application-dev.yml (修改后)
+# 开发环境配置 - 删除 spring.profiles.active
+
+spring:
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: 3236654291@qq.com
+    password: zwsvaalbbytmdbbc  # 你的授权码
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+        debug: true
+
+# 开发环境日志
+logging:
+  level:
+    com.smartcampus: DEBUG
+    org.springframework.mail: DEBUG

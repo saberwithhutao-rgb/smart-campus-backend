@@ -1,0 +1,49 @@
+# 主配置文件
+server:
+  port: 8080
+  servlet:
+    session:
+      tracking-modes: cookie
+
+spring:
+  profiles:
+    active: dev  # 默认使用开发环境配置
+
+  # 邮件配置（所有环境通用，可被环境特定配置覆盖）
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: 3236654291@qq.com
+    password: zwsvaalbbytmdbbc  # 你的授权码
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          from: 3236654291@qq.com
+        debug: true  # 开启邮件调试信息
+
+  # 数据源配置
+  datasource:
+    url: jdbc:postgresql://localhost:5432/smart_campus
+    username: postgres
+    password: 123456
+    driver-class-name: org.postgresql.Driver
+
+  # JPA配置
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+  # 禁用 Spring Security 的默认配置
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration

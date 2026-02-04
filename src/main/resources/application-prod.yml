@@ -1,0 +1,21 @@
+# application-prod.yml (修改后)
+# 生产环境配置 - 删除 spring.profiles.active
+
+spring:
+  mail:
+    host: smtp.qq.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+logging:
+  level:
+    com.smartcampus: INFO
+    org.springframework.mail: WARN
