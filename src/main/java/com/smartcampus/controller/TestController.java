@@ -19,7 +19,10 @@ import java.util.TimerTask;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = "http://localhost:5173",
+@CrossOrigin(origins = {"http://localhost:5173",
+        "http://121.43.104.134:82",  // 添加这个
+        "http://localhost:82"        // 添加这个
+        },
         allowedHeaders = "*",
         methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
         allowCredentials = "true")

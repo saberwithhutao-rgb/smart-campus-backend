@@ -27,23 +27,20 @@ public class SecurityConfig {
 
                 // 3. 配置请求授权
                 .authorizeHttpRequests(authorize -> authorize
-                                // 允许所有人访问以下路径
-                                .requestMatchers(
-                                        "/api/login",
-                                        "/api/register",
-                                        "/api/verify/**",
-                                        "/api/test",
-                                        "/api/users"
-                                ).permitAll()
+                        // 允许所有人访问以下路径
+                        .requestMatchers(
+                                "/api/login",
+                                "/api/register",
+                                "/api/verify/**",
+                                "/api/test",
+                                "/api/users"
+                        ).permitAll()
 
-                                // 允许所有人访问 /api 路径（根据你的需求调整）
-                                .requestMatchers("/api/**").permitAll()
+                        // 允许所有人访问 /api 路径
+                        .requestMatchers("/api/**").permitAll()
 
-                                // 允许访问静态资源
-                                .requestMatchers("/**").permitAll()
-
-                        // 如果需要认证其他路径
-                        // .anyRequest().authenticated()
+                        // 允许访问静态资源
+                        .requestMatchers("/**").permitAll()
                 )
 
                 // 4. 禁用默认的表单登录
@@ -62,10 +59,12 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // 允许的源
+        // 允许的源 - 添加了公网IP和本地82端口
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:5173",
-                "http://127.0.0.1:5173"
+                "http://127.0.0.1:5173",
+                "http://121.43.104.134:82",  // 添加公网IP:端口
+                "http://localhost:82"        // 添加本地82端口
         ));
 
         // 允许的请求方法
