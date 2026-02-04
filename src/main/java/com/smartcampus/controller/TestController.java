@@ -4,6 +4,7 @@ import com.smartcampus.entity.User;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.EmailService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -22,7 +23,7 @@ import java.util.TimerTask;
 @CrossOrigin(origins = {"http://localhost:5173",
         "http://121.43.104.134:82",  // 添加这个
         "http://localhost:82"        // 添加这个
-        },
+},
         allowedHeaders = "*",
         methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
         allowCredentials = "true")
@@ -43,6 +44,7 @@ public class TestController {
     // ==================== 安全的随机数生成器 ====================
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DIGITS = "0123456789";
+    private static final String CAPTCHA_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"; // 验证码字符集
 
     // ==================== 频率限制存储 ====================
     // 存储验证码（key: "email:xxx@xx.com", value: "123456"）
@@ -53,6 +55,83 @@ public class TestController {
 
     // 验证码发送频率限制（key: "email:xxx@xx.com", value: 最后发送时间）
     private final ConcurrentHashMap<String, LocalDateTime> lastVerifyCodeTime = new ConcurrentHashMap<>();
+
+    // ==================== 新增：图形验证码接口 ====================
+    @GetMapping("/captcha")
+    @ResponseBody
+    public Map<String, Object> generateCaptcha(HttpSession session) {
+        try {
+            // 生成4位随机字符（数字+大写字母）
+            StringBuilder captcha = new StringBuilder(4);
+            for (int i = 0; i < 4; i++) {
+                captcha.append(CAPTCHA_DIGITS.charAt(RANDOM.nextInt(CAPTCHA_DIGITS.length())));
+            }
+            String captchaText = captcha.toString();
+
+            System.out.println("🔐 [生成图形验证码] " + captchaText);
+
+            // 存储到session
+            session.setAttribute("captcha", captchaText);
+            session.setAttribute("captchaTime", System.currentTimeMillis());
+            session.setAttribute("captchaId", session.getId());
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("data", captchaText); // 返回纯文本验证码
+            result.put("message", "验证码生成成功");
+            result.put("captchaId", session.getId());
+            result.put("expiresIn", 600); // 10分钟有效期
+
+            return result;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            Map<String, Object> errorResult = new HashMap<>();
+            errorResult.put("code", 500);
+            errorResult.put("message", "验证码生成失败: " + e.getMessage());
+            errorResult.put("data", null);
+            return errorResult;
+        }
+    }
+
+    // 验证图形验证码（辅助方法）
+    private boolean validateCaptcha(HttpSession session, String userCaptcha) {
+        if (session == null || userCaptcha == null || userCaptcha.trim().isEmpty()) {
+            System.out.println("❌ 验证码验证失败：session或用户验证码为空");
+            return false;
+        }
+
+        String sessionCaptcha = (String) session.getAttribute("captcha");
+        Long captchaTime = (Long) session.getAttribute("captchaTime");
+
+        System.out.println("🔍 [验证图形验证码] session中的: " + sessionCaptcha + ", 用户输入的: " + userCaptcha);
+
+        if (sessionCaptcha == null || captchaTime == null) {
+            System.out.println("❌ 验证码验证失败：session中未找到验证码");
+            return false;
+        }
+
+        // 验证码10分钟有效
+        if (System.currentTimeMillis() - captchaTime > 10 * 60 * 1000) {
+            System.out.println("❌ 验证码验证失败：验证码已过期");
+            session.removeAttribute("captcha");
+            session.removeAttribute("captchaTime");
+            return false;
+        }
+
+        boolean isValid = sessionCaptcha.equalsIgnoreCase(userCaptcha.trim());
+
+        if (isValid) {
+            // 验证成功后移除session中的验证码，防止重复使用
+            session.removeAttribute("captcha");
+            session.removeAttribute("captchaTime");
+            System.out.println("✅ 图形验证码验证成功");
+        } else {
+            System.out.println("❌ 验证码验证失败：不匹配");
+        }
+
+        return isValid;
+    }
 
     // ==================== 邮件测试接口 ====================
     @GetMapping("/mail/test")
@@ -93,15 +172,22 @@ public class TestController {
 
     // ==================== 发送验证码接口（添加频率限制） ====================
     @PostMapping("/verify/email")
-    public ResponseEntity<?> sendVerifyCode(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> sendVerifyCode(@RequestBody Map<String, String> request, HttpSession session) {
         try {
             String email = request.get("email");
+            String captcha = request.get("captcha"); // 图形验证码
+            String captchaId = request.get("captchaId"); // 验证码ID
+
+            System.out.println("📧 [发送邮箱验证码] 邮箱: " + email + ", 图形验证码: " + captcha);
+
+            // 0. 先验证图形验证码
+            if (!validateCaptcha(session, captcha)) {
+                return errorResponse(400, "图形验证码错误或已过期");
+            }
 
             if (email == null || !email.contains("@")) {
                 return errorResponse(400, "邮箱格式不正确");
             }
-
-            System.out.println("📧 [发送验证码] 邮箱: " + email);
 
             // 1. 检查验证码发送频率（同一邮箱60秒内只能发送一次）
             String emailKey = "verify:" + email;
@@ -128,7 +214,7 @@ public class TestController {
                 @Override
                 public void run() {
                     emailCodes.remove(key);
-                    System.out.println("⏰ 验证码已过期: " + email);
+                    System.out.println("⏰ 邮箱验证码已过期: " + email);
                 }
             }, 10 * 60 * 1000);
 
@@ -532,20 +618,6 @@ public class TestController {
         response.put("message", "获取用户列表成功");
         response.put("data", userRepository.findAll());
         return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/captcha")
-    public ResponseEntity<?> getCaptcha() {
-        try {
-            // 简单实现：返回固定验证码
-            Map<String, Object> response = new HashMap<>();
-            response.put("code", 200);
-            response.put("data", "1234"); // 或者base64图片
-            response.put("message", "验证码");
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return errorResponse(500, "验证码生成失败");
-        }
     }
 
     // ==================== 基础辅助方法 ====================
