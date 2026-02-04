@@ -534,6 +534,20 @@ public class TestController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/captcha")
+    public ResponseEntity<?> getCaptcha() {
+        try {
+            // 简单实现：返回固定验证码
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("data", "1234"); // 或者base64图片
+            response.put("message", "验证码");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            return errorResponse(500, "验证码生成失败");
+        }
+    }
+
     // ==================== 基础辅助方法 ====================
     private String getStringValue(Map<String, Object> map, String key) {
         Object value = map.get(key);
