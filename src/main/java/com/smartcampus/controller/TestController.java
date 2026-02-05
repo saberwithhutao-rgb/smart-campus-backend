@@ -12,6 +12,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import com.smartcampus.dto.RegisterRequest;
 
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -75,17 +79,21 @@ public class TestController {
 
             System.out.println("🔐 [生成图形验证码] " + captchaText);
 
+            // 生成验证码图片（Base64格式）
+            String captchaBase64 = generateCaptchaImage(captchaText);
+
             // 存储到session
             session.setAttribute("captcha", captchaText);
             session.setAttribute("captchaTime", System.currentTimeMillis());
-            session.setAttribute("captchaId", session.getId());
+//            session.setAttribute("captchaId", session.getId());
 
             Map<String, Object> result = new HashMap<>();
             result.put("code", 200);
-            result.put("data", captchaText); // 返回纯文本验证码
-            result.put("message", "验证码生成成功");
+            result.put("data", captchaText);
             result.put("captchaId", session.getId());
-            result.put("expiresIn", 600); // 10分钟有效期
+            result.put("captchaBase64", captchaBase64); // 新增：Base64图片
+            result.put("message", "验证码生成成功");
+            result.put("expiresIn", 600);
 
             return result;
 
@@ -96,6 +104,103 @@ public class TestController {
             errorResult.put("message", "验证码生成失败: " + e.getMessage());
             errorResult.put("data", null);
             return errorResult;
+        }
+    }
+
+    private String generateCaptchaImage(String text) {
+        try {
+            // 图片尺寸
+            int width = 120;
+            int height = 40;
+
+            // 创建内存中的图片
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2d = image.createGraphics();
+
+            // 设置抗锯齿
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+            // 绘制背景（渐变）
+            GradientPaint gradient = new GradientPaint(0, 0, new Color(240, 240, 240),
+                    width, height, new Color(200, 200, 200));
+            g2d.setPaint(gradient);
+            g2d.fillRect(0, 0, width, height);
+
+            // 添加噪点背景
+            g2d.setColor(new Color(180, 180, 180));
+            for (int i = 0; i < 100; i++) {
+                int x = RANDOM.nextInt(width);
+                int y = RANDOM.nextInt(height);
+                g2d.fillRect(x, y, 2, 2);
+            }
+
+            // 设置字体
+            Font[] fonts = {
+                    new Font("Arial", Font.BOLD, 28),
+                    new Font("Courier New", Font.BOLD, 28),
+                    new Font("Times New Roman", Font.BOLD, 28)
+            };
+
+            // 绘制验证码字符
+            int charWidth = width / (text.length() + 1);
+            for (int i = 0; i < text.length(); i++) {
+                // 随机选择字体
+                Font font = fonts[RANDOM.nextInt(fonts.length)];
+                g2d.setFont(font);
+
+                // 随机颜色
+                Color color = new Color(
+                        RANDOM.nextInt(100) + 50,    // R: 50-150
+                        RANDOM.nextInt(100) + 50,    // G: 50-150
+                        RANDOM.nextInt(100) + 50     // B: 50-150
+                );
+                g2d.setColor(color);
+
+                // 随机倾斜角度
+                double angle = (RANDOM.nextDouble() - 0.5) * Math.PI / 6; // -15°到+15°
+                g2d.rotate(angle, charWidth * (i + 1), height / 2);
+
+                // 绘制字符
+                String ch = String.valueOf(text.charAt(i));
+                g2d.drawString(ch, charWidth * (i + 1) - 10, height / 2 + 10);
+
+                // 恢复旋转
+                g2d.rotate(-angle, charWidth * (i + 1), height / 2);
+            }
+
+            // 添加干扰线
+            g2d.setColor(new Color(150, 150, 150, 100)); // 半透明灰色
+            for (int i = 0; i < 5; i++) {
+                int x1 = RANDOM.nextInt(width / 2);
+                int y1 = RANDOM.nextInt(height);
+                int x2 = width / 2 + RANDOM.nextInt(width / 2);
+                int y2 = RANDOM.nextInt(height);
+
+                // 设置线条粗细
+                g2d.setStroke(new BasicStroke(1.5f));
+                g2d.drawLine(x1, y1, x2, y2);
+            }
+
+            // 添加边框
+            g2d.setColor(Color.LIGHT_GRAY);
+            g2d.setStroke(new BasicStroke(2f));
+            g2d.drawRect(1, 1, width - 3, height - 3);
+
+            g2d.dispose();
+
+            // 转换为Base64
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, "PNG", baos);
+            String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+
+            System.out.println("✅ 生成验证码图片成功，大小: " + base64.length() + " 字符");
+
+            return "data:image/png;base64," + base64;
+
+        } catch (Exception e) {
+            System.err.println("❌ 生成验证码图片失败: " + e.getMessage());
+            e.printStackTrace();
+            return ""; // 返回空字符串，前端会降级为文本显示
         }
     }
 
