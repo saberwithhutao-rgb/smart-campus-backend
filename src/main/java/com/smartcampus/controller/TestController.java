@@ -620,6 +620,55 @@ public class TestController {
         return ResponseEntity.ok(response);
     }
 
+    // ==================== 新增：简单邮件测试接口 ====================
+    @PostMapping("/test-email")
+    @ResponseBody
+    public Map<String, Object> testEmail(@RequestBody Map<String, String> request) {
+        try {
+            String toEmail = request.get("email");
+
+            if (toEmail == null || !toEmail.contains("@")) {
+                return Map.of("code", 400, "message", "邮箱格式不正确");
+            }
+
+            String testCode = "TEST1234"; // 一个固定的测试验证码
+
+            System.out.println("📧 [简单邮件测试] 目标邮箱: " + toEmail);
+
+            try {
+                // 直接调用邮件服务发送
+                emailService.sendVerificationCode(toEmail, testCode);
+                System.out.println("✅ 测试邮件发送成功: " + toEmail);
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("code", 200);
+                response.put("message", "测试邮件已发送至: " + toEmail);
+                response.put("data", Map.of(
+                        "email", toEmail,
+                        "test_code", testCode,
+                        "timestamp", LocalDateTime.now().toString()
+                ));
+
+                return response;
+
+            } catch (Exception e) {
+                e.printStackTrace(); // 这会把错误详情打印到后端日志里
+                System.err.println("❌ 邮件发送失败: " + e.getMessage());
+
+                Map<String, Object> errorResponse = new HashMap<>();
+                errorResponse.put("code", 500);
+                errorResponse.put("message", "邮件发送失败: " + e.getMessage());
+                errorResponse.put("data", null);
+
+                return errorResponse;
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Map.of("code", 500, "message", "处理请求时出错: " + e.getMessage());
+        }
+    }
+
     // ==================== 基础辅助方法 ====================
     private String getStringValue(Map<String, Object> map, String key) {
         Object value = map.get(key);
