@@ -8,7 +8,9 @@ import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import com.smartcampus.dto.RegisterRequest;
 
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -26,6 +28,7 @@ import java.util.TimerTask;
         allowedHeaders = "*",
         methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
         allowCredentials = "true")
+
 public class TestController {
 
     @Autowired
@@ -33,6 +36,9 @@ public class TestController {
 
     @Autowired
     private EmailService emailService;  // 邮件服务
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     @Autowired(required = false)  // 设置为非必须，避免启动失败
     private JavaMailSender javaMailSender;
@@ -268,6 +274,7 @@ public class TestController {
 
     // ==================== 注册接口（添加完整安全限制） ====================
     @PostMapping("/register")
+
     public ResponseEntity<?> register(@RequestBody Map<String, Object> request) {
         try {
             String username = getStringValue(request, "username");
@@ -466,13 +473,16 @@ public class TestController {
 
     // ==================== 其他接口保持不变 ====================
 
-    // 简单密码加密
     private String encodePassword(String rawPassword) {
-        return "encrypted_" + rawPassword + "_" + System.currentTimeMillis();
+        // 使用BCrypt强哈希加密（安全）
+        return passwordEncoder.encode(rawPassword);
     }
 
+
+
     private boolean checkPassword(String rawPassword, String encodedPassword) {
-        return encodedPassword != null && encodedPassword.startsWith("encrypted_");
+        // 使用passwordEncoder验证密码
+        return passwordEncoder.matches(rawPassword, encodedPassword);
     }
 
     @PostMapping("/login")
