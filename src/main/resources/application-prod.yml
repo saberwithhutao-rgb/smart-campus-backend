@@ -18,19 +18,20 @@ spring:
         format_sql: false
 
   mail:
-    host: ${MAIL_HOST:smtp.qq.com}
-    port: ${MAIL_PORT:587}
+    host: ${MAIL_HOST:gz-smtp.qcloudmail.com}
+    port: ${MAIL_PORT:465}
     username: ${MAIL_USERNAME}
     password: ${MAIL_PASSWORD}
+    protocol: smtps
     properties:
       mail:
         smtp:
           auth: true
-          starttls:
-            enable: true
-          connectiontimeout: 5000
-          timeout: 5000
-          writetimeout: 5000
+          ssl:
+            enable: true  # 465端口必须启用SSL
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
 
 server:
   port: ${SERVER_PORT:8080}
