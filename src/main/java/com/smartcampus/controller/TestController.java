@@ -285,15 +285,8 @@ public class TestController {
     public ResponseEntity<?> sendVerifyCode(@RequestBody Map<String, String> request, HttpSession session) {
         try {
             String email = request.get("email");
-            String captcha = request.get("captcha"); // 图形验证码
-            String captchaId = request.get("captchaId"); // 验证码ID
 
-            System.out.println("📧 [发送邮箱验证码] 邮箱: " + email + ", 图形验证码: " + captcha);
-
-            // 0. 先验证图形验证码
-            if (!validateCaptcha(session, captcha)) {
-                return errorResponse(400, "图形验证码错误或已过期");
-            }
+            System.out.println("📧 [发送邮箱验证码] 邮箱: " + email);
 
             if (email == null || !email.contains("@")) {
                 return errorResponse(400, "邮箱格式不正确");
@@ -343,31 +336,15 @@ public class TestController {
                 System.err.println("❌ 邮件发送失败，使用模拟验证码: " + e.getMessage());
             }
 
-            // 如果邮件发送失败，使用固定验证码（降级方案）
-            if (!emailSent) {
-                code = "123456";
-                emailCodes.put(key, code);
-                System.out.println("📱 开发备用验证码: " + code);
-            }
-
             // 7. 记录发送时间
             lastVerifyCodeTime.put(emailKey, LocalDateTime.now());
 
             // 8. 返回成功响应
             Map<String, Object> response = new HashMap<>();
             response.put("code", 200);
-            response.put("message", "验证码发送成功");
+            response.put("message", "验证码已发送");
+            response.put("data", null);
 
-            Map<String, Object> data = new HashMap<>();
-            data.put("email", email);
-            data.put("expiresIn", 600);  // 10分钟
-
-            // 如果是开发模式，添加提示
-            if (!emailSent) {
-                data.put("tip", "开发模式：验证码固定为 123456");
-            }
-
-            response.put("data", data);
 
             return ResponseEntity.ok(response);
 
