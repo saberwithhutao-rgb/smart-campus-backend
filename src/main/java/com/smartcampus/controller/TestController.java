@@ -3,6 +3,7 @@ package com.smartcampus.controller;
 import com.smartcampus.entity.User;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.EmailService;
+import com.smartcampus.utils.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,10 +26,10 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 @RestController
+@RequestMapping("/api")  // 添加这一行
 @CrossOrigin(origins = {"http://localhost:5173",
-        "http://121.43.104.134:82",  // 添加这个
-        "http://localhost:82"        // 添加这个
-},
+        "http://8.134.179.88",  // 更新为新服务器IP
+        "http://localhost"},
         allowedHeaders = "*",
         methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
         allowCredentials = "true")
@@ -49,6 +50,9 @@ public class TestController {
 
     @Autowired
     private HttpServletRequest httpServletRequest;  // 用于获取客户端IP
+
+    @Autowired
+    private JwtUtil jwtUtil;
 
     // ==================== 安全的随机数生成器 ====================
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -397,10 +401,10 @@ public class TestController {
             // ========== 原有验证逻辑 ==========
 
             // 5. 验证必填字段
-            if (username == null || username.trim().isEmpty()) {
+            if (username.trim().isEmpty()) {
                 return errorResponse(400, "用户名不能为空");
             }
-            if (password == null || password.length() < 6) {
+            if (password.length() < 6) {
                 return errorResponse(400, "密码长度至少6位");
             }
             if (email == null || !email.contains("@")) {
@@ -568,19 +572,22 @@ public class TestController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
         try {
             String username = request.get("username");
             String password = request.get("password");
             String captcha = request.get("captcha");
-            String captchaId = request.get("captchaId");
 
             System.out.println("🔑 [登录] 收到数据：" + request);
 
+            HttpSession session = httpRequest.getSession(false);
+
             // 1. 验证验证码
-            if (!"123456".equals(captcha)) {
-                return errorResponse(400, "验证码错误");
+            if (session == null || !validateCaptcha(session, captcha)) {
+                return errorResponse(400, "验证码错误或已过期");
             }
+
+            session.invalidate();
 
             // 2. 查找用户
             User user = userRepository.findByUsername(username)
@@ -604,7 +611,7 @@ public class TestController {
             userRepository.save(user);
 
             // 5. 生成模拟token
-            String token = "jwt-" + user.getId() + "-" + System.currentTimeMillis();
+            String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
 
             // 6. 构建返回数据
             Map<String, Object> response = new HashMap<>();
@@ -613,28 +620,9 @@ public class TestController {
 
             Map<String, Object> data = new HashMap<>();
             data.put("token", token);
-            data.put("refreshToken", token + "-refresh");
+            data.put("role", user.getRole()); // 假设角色已经是"student"或"admin"
+            data.put("username", user.getUsername());
 
-            Map<String, Object> userInfo = new HashMap<>();
-            userInfo.put("id", user.getId());
-            userInfo.put("username", user.getUsername());
-            userInfo.put("email", user.getEmail());
-            userInfo.put("gender", user.getGender());
-            userInfo.put("genderText", user.getGenderText());
-            userInfo.put("avatarUrl", user.getAvatarUrl());
-            userInfo.put("avatar", user.getAvatar());
-            userInfo.put("status", user.getStatus());
-            userInfo.put("statusText", user.getStatusText());
-            userInfo.put("role", user.getRole());
-            userInfo.put("studentId", user.getStudentId());
-            userInfo.put("major", user.getMajor());
-            userInfo.put("college", user.getCollege());
-            userInfo.put("grade", user.getGrade());
-            userInfo.put("createdAt", user.getCreatedAt());
-            userInfo.put("lastLoginAt", user.getLastLoginAt());
-            userInfo.put("metadata", user.getMetadata());
-
-            data.put("user", userInfo);
             response.put("data", data);
 
             return ResponseEntity.ok(response);
@@ -757,6 +745,82 @@ public class TestController {
         } catch (Exception e) {
             e.printStackTrace();
             return Map.of("code", 500, "message", "处理请求时出错: " + e.getMessage());
+        }
+    }
+
+    // ==================== 需要新增的接口 ====================
+// 1. 退出登录接口
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return errorResponse(1005, "Token无效，退出失败");
+            }
+
+            String token = authHeader.substring(7);
+            // 实际应该将token加入黑名单或删除，这里简单返回成功
+            System.out.println("🔓 [退出登录] Token: " + token);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "退出登录成功");
+            response.put("data", null);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return errorResponse(1005, "Token无效，退出失败");
+        }
+    }
+
+    // 2. 刷新Token接口
+    @PostMapping("/token/refresh")
+    public ResponseEntity<?> refreshToken(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        try {
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                return errorResponse(401, "Token无效");
+            }
+
+            String oldToken = authHeader.substring(7);
+            // 验证旧token（简单模拟）
+            if (!oldToken.startsWith("jwt-")) {
+                return errorResponse(401, "Token格式错误");
+            }
+
+            // 解析用户ID
+            String[] parts = oldToken.split("-");
+            if (parts.length < 2) {
+                return errorResponse(401, "Token格式错误");
+            }
+
+            Integer userId = Integer.parseInt(parts[1]);
+            Optional<User> userOptional = userRepository.findById(userId);
+
+            if (userOptional.isEmpty()) {
+                return errorResponse(404, "用户不存在");
+            }
+
+            // 生成新token
+            String newToken = "jwt-" + userId + "-" + System.currentTimeMillis();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "Token刷新成功");
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("token", newToken);
+            data.put("refreshToken", newToken + "-refresh");
+            data.put("role", userOptional.get().getRole());
+            data.put("username", userOptional.get().getUsername());
+
+            response.put("data", data);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return errorResponse(500, "刷新Token失败");
         }
     }
 
