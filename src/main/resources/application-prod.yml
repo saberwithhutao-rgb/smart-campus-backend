@@ -53,8 +53,9 @@ logging:
     rollingpolicy:
       max-file-size: 10MB
       max-history: 30
+# JWT配置
 jwt:
-  secret: your-strong-secret-key-here-must-be-changed-in-production
+  secret: smart-campus-jwt-secret-key-2024-change-this-in-production
   expiration: 86400000  # 24小时，单位毫秒
 
 # 在现有配置中添加AI相关配置
@@ -76,11 +77,12 @@ ai:
   task:
     timeout: 300000  # 5分钟超时
     max-concurrent: 10
-# 添加文件上传配置
+
+# 文件上传配置
 file:
   upload:
     max-size: 50MB
-    allowed-types: pdf,docx,txt,jpg,jpeg,png,mp3,wav,ppt,pptx
+    allowed-types: pdf,doc,docx,txt
     storage:
       location: /opt/smart-campus/uploads
 

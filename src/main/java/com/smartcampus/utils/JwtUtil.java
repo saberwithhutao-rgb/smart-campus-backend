@@ -1,12 +1,10 @@
 package com.smartcampus.utils;
 
-import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-
-import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
@@ -15,13 +13,13 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret:your-secret-key-here-change-in-production}") // 从配置文件读取
+    @Value("${jwt.secret:smart-campus-secret-key-change-in-production}")
     private String secret;
 
-    @Value("${jwt.expiration:86400000}") // 默认24小时
+    @Value("${jwt.expiration:86400000}") // 24小时
     private long expiration;
 
-    private SecretKey key;
+    private javax.crypto.SecretKey key;
 
     @PostConstruct
     public void init() {
@@ -29,7 +27,7 @@ public class JwtUtil {
     }
 
     // 生成token
-    public String generateToken(Integer userId, String username, String role) {
+    public String generateToken(Long userId, String username, String role) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
@@ -39,12 +37,12 @@ public class JwtUtil {
                 .claims(claims)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
-                .signWith(key)
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
     // 解析token
-    public Map<String, Object> parseToken(String token) {
+    public Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(key)
                 .build()
@@ -52,13 +50,16 @@ public class JwtUtil {
                 .getPayload();
     }
 
+    // 从token获取用户ID
+    public Long getUserIdFromToken(String token) {
+        Claims claims = parseToken(token);
+        return claims.get("userId", Long.class);
+    }
+
     // 验证token
     public boolean validateToken(String token) {
         try {
-            Jwts.parser()
-                    .verifyWith(key)
-                    .build()
-                    .parseSignedClaims(token);
+            parseToken(token);
             return true;
         } catch (Exception e) {
             return false;

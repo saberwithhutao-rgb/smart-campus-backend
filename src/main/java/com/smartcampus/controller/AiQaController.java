@@ -1,5 +1,7 @@
 package com.smartcampus.controller;
 
+import io.jsonwebtoken.Claims;
+import com.smartcampus.utils.JwtUtil;
 import com.smartcampus.entity.AiConversation;
 import com.smartcampus.entity.LearningFile;
 import com.smartcampus.repository.AiConversationRepository;
@@ -7,6 +9,7 @@ import com.smartcampus.repository.LearningFileRepository;
 import com.smartcampus.service.FileProcessingService;
 import com.smartcampus.service.QianWenService;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -26,12 +29,17 @@ import java.util.concurrent.Executors;
 @RequestMapping("/ai")
 @Slf4j
 public class AiQaController {
+    @Autowired
+    private JwtUtil jwtUtil;
 
     @Autowired
     private QianWenService qianWenService;
 
     @Autowired
     private FileProcessingService fileProcessingService;
+
+    @Autowired
+    private com.smartcampus.repository.UserRepository userRepository;
 
     @Autowired
     private com.smartcampus.repository.AiConversationRepository aiConversationRepository;
@@ -54,28 +62,80 @@ public class AiQaController {
             @RequestParam(value = "sessionId", defaultValue = "") String sessionId,
             @RequestParam(value = "stream", defaultValue = "false") Boolean stream,
             @RequestHeader("Authorization") String authHeader,
+            HttpServletRequest request,
             HttpServletResponse response) {
 
         try {
-            String userId = extractUserIdFromToken(authHeader);
+            // 1. 验证并提取用户信息
+            Long userId = validateAndExtractUserId(authHeader);
+            if (userId == null) {
+                return buildErrorResponse(401, "未授权或Token无效");
+            }
 
-            // 如果没有sessionId，创建新的
+            // 2. 验证用户是否存在
+            if (!userRepository.existsById(Math.toIntExact(userId))) {
+                log.error("用户ID {} 不存在于数据库", userId);
+                return buildErrorResponse(401, "用户不存在");
+            }
+
+            // 3. 如果没有sessionId，创建新的
             if (sessionId.isEmpty()) {
-                sessionId = "session_" + UUID.randomUUID().toString().substring(0, 8);
+                sessionId = generateSessionId();
             }
 
             // 情况1：有文件上传
             if (file != null && !file.isEmpty()) {
-                return handleFileUpload(question, file, userId, sessionId);
+                return handleFileUpload(question, file, userId.toString(), sessionId);
             }
 
             // 情况2：纯文本问答
-            return handleTextQuestion(question, userId, sessionId, stream, response);
+            return handleTextQuestion(question, userId.toString(), sessionId, stream, response);
 
         } catch (Exception e) {
             log.error("智能问答处理失败", e);
             return ResponseEntity.status(500).body(buildErrorResponse(500, "服务异常: " + e.getMessage()));
         }
+    }
+
+    /**
+     * 验证并提取用户ID
+     */
+    private Long validateAndExtractUserId(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.warn("缺少或格式错误的Authorization头");
+            return null;
+        }
+
+        try {
+            String token = authHeader.substring(7);
+
+            // 验证token
+            if (!jwtUtil.validateToken(token)) {
+                log.warn("Token验证失败");
+                return null;
+            }
+
+            // 提取用户ID
+            Long userId = jwtUtil.getUserIdFromToken(token);
+            if (userId == null) {
+                log.warn("Token中未包含用户ID");
+                return null;
+            }
+
+            log.debug("成功验证用户ID: {}", userId);
+            return userId;
+
+        } catch (Exception e) {
+            log.error("Token解析失败", e);
+            return null;
+        }
+    }
+
+    /**
+     * 生成会话ID
+     */
+    private String generateSessionId() {
+        return "sess_" + UUID.randomUUID().toString().substring(0, 12);
     }
 
     /**
@@ -261,22 +321,24 @@ public class AiQaController {
             @RequestParam(value = "limit", defaultValue = "50") Integer limit,
             @RequestHeader("Authorization") String authHeader) {
 
-        String userId = extractUserIdFromToken(authHeader);
-        Long userIdLong = Long.parseLong(userId.replace("user_", ""));
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return buildErrorResponse(401, "未授权或Token无效");
+        }
 
         List<AiConversation> conversations;
 
         if (sessionId != null && !sessionId.isEmpty()) {
             // 简化调用：不使用Pageable
             conversations = aiConversationRepository
-                    .findByUserIdAndSessionIdOrderByCreatedAtDesc(userIdLong, sessionId);
+                    .findByUserIdAndSessionIdOrderByCreatedAtDesc(userId, sessionId);
             if (conversations.size() > limit) {
                 conversations = conversations.subList(0, limit);
             }
         } else {
             // 简化调用
             conversations = aiConversationRepository
-                    .findByUserIdOrderByCreatedAtDesc(userIdLong);
+                    .findByUserIdOrderByCreatedAtDesc(userId);
             if (conversations.size() > limit) {
                 conversations = conversations.subList(0, limit);
             }
@@ -295,7 +357,7 @@ public class AiQaController {
      */
     private LearningFile saveLearningFile(MultipartFile file, String userId) throws Exception {
         LearningFile learningFile = new LearningFile();
-        learningFile.setUserId(Long.parseLong(userId.replace("user_", "")));
+        learningFile.setUserId(Long.parseLong(userId));
         learningFile.setOriginalName(file.getOriginalFilename());
         learningFile.setFileName(UUID.randomUUID() + "_" + file.getOriginalFilename());
         learningFile.setFileType(getFileExtension(file.getOriginalFilename()));
@@ -317,7 +379,7 @@ public class AiQaController {
     private void saveConversation(String userId, String sessionId,
                                   String question, String answer, Long fileId) {
         AiConversation conversation = new AiConversation();
-        conversation.setUserId(Long.parseLong(userId.replace("user_", "")));
+        conversation.setUserId(Long.parseLong(userId));
         conversation.setSessionId(sessionId);
         conversation.setQuestion(question);
         conversation.setAnswer(answer);
@@ -348,17 +410,34 @@ public class AiQaController {
         return filename.substring(filename.lastIndexOf(".") + 1);
     }
 
-    private Map<String, Object> buildErrorResponse(int code, String message) {
+    /**
+     * 构建成功响应
+     */
+    private Map<String, Object> buildSuccessResponse(Object data) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+        response.put("data", data);
+        return response;
+    }
+
+    /**
+     * 构建错误响应（返回ResponseEntity）
+     */
+    private ResponseEntity<Map<String, Object>> buildErrorResponse(int code, String message) {
         Map<String, Object> error = new HashMap<>();
         error.put("code", code);
         error.put("message", message);
         error.put("data", null);
-        return error;
-    }
 
-    private String extractUserIdFromToken(String authHeader) {
-        // TODO: 从JWT token解析真实用户ID
-        // 暂时返回模拟ID
-        return "user_123";
+        HttpStatus status = switch (code) {
+            case 400 -> HttpStatus.BAD_REQUEST;
+            case 401 -> HttpStatus.UNAUTHORIZED;
+            case 403 -> HttpStatus.FORBIDDEN;
+            case 404 -> HttpStatus.NOT_FOUND;
+            default -> HttpStatus.INTERNAL_SERVER_ERROR;
+        };
+
+        return ResponseEntity.status(status).body(error);
     }
 }
