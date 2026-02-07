@@ -168,6 +168,17 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi</artifactId>
+            <version>5.2.5</version> <!-- 最新稳定版 -->
+        </dependency>
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId> <!-- 包含docx支持 -->
+            <version>5.2.5</version>
+        </dependency>
+
     </dependencies>
 
     <build>
