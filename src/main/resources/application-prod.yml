@@ -33,6 +33,13 @@ spring:
           timeout: 10000
           writetimeout: 10000
 
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 5000
+      database: 1  # 使用1号库存储AI缓存
+
 server:
   port: ${SERVER_PORT:8080}
 
@@ -49,3 +56,34 @@ logging:
 jwt:
   secret: your-strong-secret-key-here-must-be-changed-in-production
   expiration: 86400000  # 24小时，单位毫秒
+
+# 在现有配置中添加AI相关配置
+ai:
+  qianwen:
+    api-key: sk-131e010e2b4a4fd3a7c41ef3e3ae10d8
+    api-url: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+    timeout: 30000
+
+  embedding:
+    model: text-embedding-v2
+    chunk-size: 500
+    chunk-overlap: 50
+
+  rag:
+    top-k: 3  # 检索最相关的3个片段
+    similarity-threshold: 0.7  # 相似度阈值
+
+  task:
+    timeout: 300000  # 5分钟超时
+    max-concurrent: 10
+# 添加文件上传配置
+file:
+  upload:
+    max-size: 50MB
+    allowed-types: pdf,docx,txt,jpg,jpeg,png,mp3,wav,ppt,pptx
+    storage:
+      location: /opt/smart-campus/uploads
+
+
+
+
