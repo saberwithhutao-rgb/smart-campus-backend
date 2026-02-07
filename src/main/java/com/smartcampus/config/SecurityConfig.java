@@ -33,10 +33,13 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/login",
                                 "/api/register",
+                                "/api/captcha",
                                 "/api/verify/**",
                                 "/api/test",
                                 "/api/users"
                         ).permitAll()
+
+                        .requestMatchers("/ai/**").permitAll()
 
                         // 允许所有人访问 /api 路径
                         .requestMatchers("/api/**").permitAll()
