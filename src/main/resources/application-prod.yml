@@ -12,7 +12,7 @@ spring:
       idle-timeout: 600000
       max-lifetime: 1800000
       leak-detection-threshold: 60000
-      connection-test-query: SELECT 1
+#      connection-test-query: SELECT 1
       data-source-properties:
         ssl: false
         socketTimeout: 30
