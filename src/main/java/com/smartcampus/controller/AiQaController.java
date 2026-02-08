@@ -211,11 +211,11 @@ public class AiQaController {
             return null;
         }
     }
+
     @GetMapping("/chat")
-    @ResponseBody
-    public ResponseEntity<Void> handleChatPage() {
-        // 返回空响应，状态码200
-        return ResponseEntity.ok().build();
+    public String handleChatPage() {
+        // 重定向到首页，Vue Router会处理/ai/chat路由
+        return "redirect:/";
     }
 
     /**
