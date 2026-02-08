@@ -76,7 +76,6 @@ server:
     # 因为TestController已经有@RequestMapping("/api")了
 
 # 日志配置
-# 日志配置
 logging:
   level:
     root: INFO
@@ -142,5 +141,3 @@ management:
         enabled: true
       db:
         enabled: true
-
-# 详细日志配置
