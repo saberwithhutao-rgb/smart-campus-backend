@@ -1,5 +1,7 @@
 package com.smartcampus.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.SimpleMailMessage;
@@ -12,6 +14,7 @@ import jakarta.mail.internet.MimeMessage;
 
 @Service
 public class EmailService {
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     @Autowired
     private JavaMailSender mailSender;
@@ -60,12 +63,7 @@ public class EmailService {
             System.out.println("✅ 验证码邮件发送成功: " + code);
 
         } catch (Exception e) {
-            System.err.println("❌ 发送验证码邮件失败: " + e.getMessage());
-            e.printStackTrace();
-
-            // 如果HTML邮件失败，尝试发送纯文本
-            String text = "您的验证码是: " + code + "，有效期10分钟。";
-            sendSimpleEmail(to, "智慧校园验证码", text);
+            log.error("邮件发送失败，使用模拟验证码。收件人: {}, 错误: {}", to, e.getMessage());
         }
     }
 

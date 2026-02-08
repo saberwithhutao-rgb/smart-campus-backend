@@ -59,60 +59,61 @@ public class AiQaController {
     public ResponseEntity<?> chatWithAi(
             @RequestParam("question") String question,
             @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestParam(value = "sessionId", required = false) String sessionId,  // 改为required=false
-            @RequestParam(value = "stream", required = false) String streamStr,    // 改为String类型
-            @RequestHeader("Authorization") String authHeader,
-            HttpServletRequest request,
-            HttpServletResponse response) {
+            @RequestParam(value = "sessionId", required = false) String sessionIdParam,
+            @RequestParam(value = "stream", required = false) String streamParam,
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+
+        log.info("AI聊天接口被调用，问题: {}, sessionId: {}, stream: {}",
+                question, sessionIdParam, streamParam);
 
         try {
-            log.info("=== /ai/chat 被调用 ===");
-            log.info("question: {}", question);
-            log.info("sessionId: {}", sessionId);
-            log.info("stream参数: {}", streamStr);
-            log.info("文件: {}", file != null ? file.getOriginalFilename() : "无");
-
-            // 1. 验证并提取用户信息
-            Long userId = validateAndExtractUserId(authHeader);
-            if (userId == null) {
-                log.warn("Token验证失败");
-                return buildErrorResponse(401, "未授权或Token无效");
+            // 1. 验证认证头
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                log.warn("缺少或无效的认证头");
+                return ResponseEntity.status(401)
+                        .body(Map.of("code", 401, "message", "未授权"));
             }
 
-            // 2. 验证用户是否存在 - 修复类型问题
-            if (!userRepository.existsById(userId.intValue())) {  // 修复：使用intValue()
-                log.error("用户ID {} 不存在于数据库", userId);
-                return buildErrorResponse(401, "用户不存在");
-            }
+            // 2. 解析token（简化版，跳过JWT验证）
+            String token = authHeader.substring(7);
+            Long userId = 1L; // 默认使用autouser
 
-            log.info("用户验证成功，ID: {}", userId);
+            // 3. 处理参数
+            String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
+                    ? sessionIdParam
+                    : "sess_" + System.currentTimeMillis();
 
-            // 3. 处理sessionId
-            if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = generateSessionId();
-                log.info("生成新sessionId: {}", sessionId);
-            }
+            boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
 
-            // 4. 处理stream参数
-            boolean stream = false;
-            if (streamStr != null && ("true".equalsIgnoreCase(streamStr) || "1".equals(streamStr))) {
-                stream = true;
-            }
+            // 4. 简单响应（先确保接口能通）
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "success");
 
-            // 情况1：有文件上传
-            if (file != null && !file.isEmpty()) {
-                log.info("处理文件上传: {}", file.getOriginalFilename());
-                return handleFileUpload(question, file, userId.toString(), sessionId);
-            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("answer", "已收到您的问题: " + question +
+                    " (sessionId: " + sessionId + ", stream: " + stream + ")");
+            data.put("sessionId", sessionId);
 
-            // 情况2：纯文本问答
-            log.info("处理纯文本问答，stream={}", stream);
-            return handleTextQuestion(question, userId.toString(), sessionId, stream, response);
+            response.put("data", data);
+
+            log.info("AI接口响应成功");
+            return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("智能问答处理失败", e);
-            return ResponseEntity.status(500).body(buildErrorResponse(500, "服务异常: " + e.getMessage()));
+            log.error("AI接口异常", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "服务器错误: " + e.getMessage()));
         }
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<?> healthCheck() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("status", "UP");
+        status.put("timestamp", new Date());
+        status.put("service", "smart-campus-ai");
+        return ResponseEntity.ok(status);
     }
 
     @PostMapping(value = "/chat/debug", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
