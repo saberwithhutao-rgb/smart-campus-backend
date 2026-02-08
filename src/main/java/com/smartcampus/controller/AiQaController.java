@@ -59,42 +59,86 @@ public class AiQaController {
     public ResponseEntity<?> chatWithAi(
             @RequestParam("question") String question,
             @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestParam(value = "sessionId", defaultValue = "") String sessionId,
-            @RequestParam(value = "stream", defaultValue = "false") Boolean stream,
+            @RequestParam(value = "sessionId", required = false) String sessionId,  // 改为required=false
+            @RequestParam(value = "stream", required = false) String streamStr,    // 改为String类型
             @RequestHeader("Authorization") String authHeader,
             HttpServletRequest request,
             HttpServletResponse response) {
 
         try {
+            log.info("=== /ai/chat 被调用 ===");
+            log.info("question: {}", question);
+            log.info("sessionId: {}", sessionId);
+            log.info("stream参数: {}", streamStr);
+            log.info("文件: {}", file != null ? file.getOriginalFilename() : "无");
+
             // 1. 验证并提取用户信息
             Long userId = validateAndExtractUserId(authHeader);
             if (userId == null) {
+                log.warn("Token验证失败");
                 return buildErrorResponse(401, "未授权或Token无效");
             }
 
-            // 2. 验证用户是否存在
-            if (!userRepository.existsById(Math.toIntExact(userId))) {
+            // 2. 验证用户是否存在 - 修复类型问题
+            if (!userRepository.existsById(userId.intValue())) {  // 修复：使用intValue()
                 log.error("用户ID {} 不存在于数据库", userId);
                 return buildErrorResponse(401, "用户不存在");
             }
 
-            // 3. 如果没有sessionId，创建新的
-            if (sessionId.isEmpty()) {
+            log.info("用户验证成功，ID: {}", userId);
+
+            // 3. 处理sessionId
+            if (sessionId == null || sessionId.isEmpty()) {
                 sessionId = generateSessionId();
+                log.info("生成新sessionId: {}", sessionId);
+            }
+
+            // 4. 处理stream参数
+            boolean stream = false;
+            if (streamStr != null && ("true".equalsIgnoreCase(streamStr) || "1".equals(streamStr))) {
+                stream = true;
             }
 
             // 情况1：有文件上传
             if (file != null && !file.isEmpty()) {
+                log.info("处理文件上传: {}", file.getOriginalFilename());
                 return handleFileUpload(question, file, userId.toString(), sessionId);
             }
 
             // 情况2：纯文本问答
+            log.info("处理纯文本问答，stream={}", stream);
             return handleTextQuestion(question, userId.toString(), sessionId, stream, response);
 
         } catch (Exception e) {
             log.error("智能问答处理失败", e);
             return ResponseEntity.status(500).body(buildErrorResponse(500, "服务异常: " + e.getMessage()));
         }
+    }
+
+    @PostMapping(value = "/chat/debug", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> debugMultipart(
+            @RequestParam("question") String question,
+            @RequestParam(value = "stream", required = false) String streamStr, // 使用String接收
+            HttpServletRequest rawRequest) {
+
+        log.info("=== DEBUG 端点被调用 ===");
+        log.info("问题参数: {}", question);
+        log.info("stream参数: {}", streamStr);
+
+        // 打印所有请求参数
+        rawRequest.getParameterMap().forEach((key, values) -> {
+            log.info("参数 {} = {}", key, String.join(",", values));
+        });
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "调试成功");
+        response.put("data", Map.of(
+                "question", question,
+                "stream", streamStr
+        ));
+
+        return ResponseEntity.ok(response);
     }
 
     /**

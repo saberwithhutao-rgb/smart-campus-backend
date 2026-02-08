@@ -76,14 +76,19 @@ server:
     # 因为TestController已经有@RequestMapping("/api")了
 
 # 日志配置
+# 日志配置
 logging:
   level:
-    root: ${LOG_LEVEL:INFO}
+    root: INFO
     com.smartcampus: DEBUG
-    org.springframework.web: WARN
-    org.hibernate.SQL: ERROR
+    com.smartcampus.controller.AiQaController: TRACE
+    org.springframework.web: DEBUG
+    org.springframework.web.multipart: TRACE
+    org.springframework.web.multipart.support: TRACE
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql: WARN
   file:
-    name: /var/log/smart-campus/app.log
+    name: /var/log/smart-campus/backend-detailed.log
   logback:
     rollingpolicy:
       max-file-size: 10MB
@@ -137,3 +142,5 @@ management:
         enabled: true
       db:
         enabled: true
+
+# 详细日志配置
