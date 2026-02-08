@@ -3,7 +3,7 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_campus
     username: smartcampus_app
-    password: SmartCampus@2024
+    password: SmartCampus2024
     hikari:
       pool-name: SmartCampusHikariPool
       maximum-pool-size: 20
