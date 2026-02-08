@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -213,9 +214,11 @@ public class AiQaController {
     }
 
     @GetMapping("/chat")
-    public String handleChatPage() {
-        // 重定向到首页，Vue Router会处理/ai/chat路由
-        return "redirect:/";
+    public ResponseEntity<Void> handleChatPage() {
+        // 明确返回重定向响应
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create("/"))
+                .build();
     }
 
     /**
