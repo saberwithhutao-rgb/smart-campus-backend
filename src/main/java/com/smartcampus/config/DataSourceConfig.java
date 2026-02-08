@@ -2,6 +2,7 @@ package com.smartcampus.config;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,16 +12,25 @@ import javax.sql.DataSource;
 @Configuration
 public class DataSourceConfig {
 
+    @Value("${spring.datasource.url:jdbc:postgresql://localhost:5432/smart_campus}")
+    private String jdbcUrl;
+
+    @Value("${spring.datasource.username:smartcampus_app}")
+    private String username;
+
+    @Value("${spring.datasource.password:SmartCampus2024}")
+    private String password;
+
     @Bean
     @ConfigurationProperties(prefix = "spring.datasource.hikari")
     @Profile("prod")
     public DataSource prodDataSource() {
         HikariConfig config = new HikariConfig();
 
-        // 基础配置
-        config.setJdbcUrl("jdbc:postgresql://localhost:5432/smart_campus");
-        config.setUsername("smartcampus_app");
-        config.setPassword(System.getenv("DB_PASSWORD")); // 从环境变量获取
+        // 基础配置 - 从配置文件读取
+        config.setJdbcUrl(jdbcUrl);
+        config.setUsername(username);
+        config.setPassword(password); // 修复：从配置文件读取，不是环境变量
 
         // 连接池优化
         config.setMaximumPoolSize(20);
@@ -29,7 +39,7 @@ public class DataSourceConfig {
         config.setIdleTimeout(600000);
         config.setMaxLifetime(1800000);
         config.setLeakDetectionThreshold(60000);
-        config.setConnectionTestQuery("SELECT 1");
+        config.setConnectionInitSql("SELECT 1"); // 修复：connection-init-sql
         config.setPoolName("SmartCampusProdPool");
 
         // PostgreSQL特定优化
