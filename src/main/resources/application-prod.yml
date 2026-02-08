@@ -1,9 +1,9 @@
 spring:
-  # 数据源配置
+  # 数据源配置 - 使用你的实际用户名和密码
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_campus?sslmode=disable&prepareThreshold=5&ApplicationName=smart_campus_backend
-    username: you  # 使用专用用户，不是postgres
-    password: ${DB_PASSWORD:AppSecurePass123!@#}  # 从环境变量读取
+    username: you  # ✅ 你的实际用户名
+    password: ${DB_PASSWORD:Suoluomen}  # ✅ 你的密码，环境变量优先
     hikari:
       pool-name: SmartCampusHikariPool
       maximum-pool-size: 20
@@ -39,8 +39,8 @@ spring:
   mail:
     host: ${MAIL_HOST:gz-smtp.qcloudmail.com}
     port: ${MAIL_PORT:465}
-    username: ${MAIL_USERNAME}
-    password: ${MAIL_PASSWORD}
+    username: ${MAIL_USERNAME:noreply@55kjikj.xyz}
+    password: ${MAIL_PASSWORD:NagatoYuki154}
     protocol: smtps
     properties:
       mail:
@@ -72,7 +72,8 @@ spring:
 server:
   port: ${SERVER_PORT:8080}
   servlet:
-    context-path: /api  # 确保这个不会和@RequestMapping冲突
+    context-path:  # ⚠️ 重要：清空这个！保持为空字符串
+    # 因为TestController已经有@RequestMapping("/api")了
 
 # 日志配置
 logging:
