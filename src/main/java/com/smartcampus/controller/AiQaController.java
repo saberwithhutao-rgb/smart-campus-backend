@@ -211,6 +211,12 @@ public class AiQaController {
             return null;
         }
     }
+    @GetMapping("/chat")
+    @ResponseBody
+    public ResponseEntity<Void> handleChatPage() {
+        // 返回空响应，状态码200
+        return ResponseEntity.ok().build();
+    }
 
     /**
      * 生成会话ID
