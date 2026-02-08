@@ -12,46 +12,40 @@ import javax.sql.DataSource;
 @Configuration
 public class DataSourceConfig {
 
-    @Value("${spring.datasource.url:jdbc:postgresql://localhost:5432/smart_campus}")
-    private String jdbcUrl;
+    private final String jdbcUrl;
+    private final String username;
+    private final String password;
 
-    @Value("${spring.datasource.username:smartcampus_app}")
-    private String username;
-
-    @Value("${spring.datasource.password:SmartCampus2024}")
-    private String password;
+    // 构造函数注入，确保值可用
+    public DataSourceConfig(
+            @Value("${spring.datasource.url:jdbc:postgresql://localhost:5432/smart_campus}") String jdbcUrl,
+            @Value("${spring.datasource.username:smartcampus_app}") String username,
+            @Value("${spring.datasource.password:SmartCampus2024}") String password) {
+        this.jdbcUrl = jdbcUrl;
+        this.username = username;
+        this.password = password;
+        System.out.println("DataSourceConfig初始化完成");
+    }
 
     @Bean
     @ConfigurationProperties(prefix = "spring.datasource.hikari")
     @Profile("prod")
     public DataSource prodDataSource() {
-        HikariConfig config = new HikariConfig();
+        System.out.println("创建prodDataSource...");
 
-        // 基础配置 - 从配置文件读取
+        HikariConfig config = new HikariConfig();
         config.setJdbcUrl(jdbcUrl);
         config.setUsername(username);
-        config.setPassword(password); // 修复：从配置文件读取，不是环境变量
+        config.setPassword(password != null ? password : "SmartCampus2024"); // 双重保险
 
-        // 连接池优化
-        config.setMaximumPoolSize(20);
-        config.setMinimumIdle(10);
+        System.out.println("配置: URL=" + jdbcUrl + ", User=" + username + ", Password=" + (password != null ? "***" : "NULL"));
+
+        // 简化配置，先确保能连接
+        config.setMaximumPoolSize(5);
+        config.setMinimumIdle(2);
         config.setConnectionTimeout(30000);
-        config.setIdleTimeout(600000);
-        config.setMaxLifetime(1800000);
-        config.setLeakDetectionThreshold(60000);
-        config.setConnectionInitSql("SELECT 1"); // 修复：connection-init-sql
+        config.setConnectionInitSql("SELECT 1");
         config.setPoolName("SmartCampusProdPool");
-
-        // PostgreSQL特定优化
-        config.addDataSourceProperty("prepareThreshold", "5");
-        config.addDataSourceProperty("preparedStatementCacheQueries", "256");
-        config.addDataSourceProperty("preparedStatementCacheSizeMiB", "5");
-        config.addDataSourceProperty("assumeMinServerVersion", "12");
-        config.addDataSourceProperty("ApplicationName", "smart_campus_backend");
-
-        // 连接验证
-        config.setValidationTimeout(5000);
-        config.setInitializationFailTimeout(60000);
 
         return new HikariDataSource(config);
     }
@@ -59,13 +53,11 @@ public class DataSourceConfig {
     @Bean
     @Profile("dev")
     public DataSource devDataSource() {
-        // 开发环境配置（简化）
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl("jdbc:postgresql://localhost:5432/smart_campus");
         config.setUsername("postgres");
         config.setPassword("123456");
-        config.setMaximumPoolSize(10);
-        config.setMinimumIdle(5);
+        config.setMaximumPoolSize(5);
         return new HikariDataSource(config);
     }
 }
