@@ -2,8 +2,8 @@ spring:
   # 数据源配置 - 使用你的实际用户名和密码
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_campus
-    username: postgres
-    password: 123456
+    username: smartcampus_app
+    password: SmartCampus@2024
     hikari:
       pool-name: SmartCampusHikariPool
       maximum-pool-size: 20
