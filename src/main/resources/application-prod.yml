@@ -79,6 +79,9 @@ server:
 logging:
   level:
     root: INFO
+    com.zaxxer.hikari: DEBUG
+    org.postgresql: INFO
+    org.postgresql.jdbc: INFO
     com.smartcampus: DEBUG
     com.smartcampus.controller.AiQaController: TRACE
     org.springframework.web: DEBUG
