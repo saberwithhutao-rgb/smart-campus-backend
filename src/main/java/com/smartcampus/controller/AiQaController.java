@@ -107,6 +107,42 @@ public class AiQaController {
         }
     }
 
+    @PostMapping(value = "/chat/diagnose", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> diagnoseMultipart(
+            @RequestParam(value = "question", required = false) String question,
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            @RequestParam(value = "sessionId", required = false) String sessionId,
+            @RequestParam(value = "stream", required = false) String streamStr,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            HttpServletRequest rawRequest) {
+
+        Map<String, Object> logMap = new HashMap<>();
+
+        // 1. 记录接收到的原始参数
+        logMap.put("收到参数 - question", question);
+        logMap.put("收到参数 - sessionId", sessionId);
+        logMap.put("收到参数 - streamStr", streamStr);
+        logMap.put("收到参数 - file为空", file == null || file.isEmpty());
+        logMap.put("收到参数 - authHeader存在", authHeader != null && authHeader.startsWith("Bearer "));
+
+        // 2. 记录Spring无法解析的所有参数名
+        Enumeration<String> paramNames = rawRequest.getParameterNames();
+        List<String> springParamNames = Collections.list(paramNames);
+        logMap.put("Spring解析的参数名列表", springParamNames);
+
+        // 3. 检查请求内容类型
+        logMap.put("请求Content-Type", rawRequest.getContentType());
+
+        // 4. 直接返回诊断信息
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "诊断端点调用成功");
+        response.put("data", logMap);
+
+        log.info("诊断端点调用详情：{}", logMap);
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/health")
     public ResponseEntity<?> healthCheck() {
         Map<String, Object> status = new HashMap<>();
