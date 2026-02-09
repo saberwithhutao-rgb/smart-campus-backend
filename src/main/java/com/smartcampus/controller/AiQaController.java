@@ -22,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -81,6 +82,14 @@ public class AiQaController {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    @GetMapping("/chat")
+    public ResponseEntity<Void> handleChatPage() {
+        log.info("收到GET请求到/ai/chat，重定向到首页");
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create("/"))
+                .build();
     }
 
     /**
