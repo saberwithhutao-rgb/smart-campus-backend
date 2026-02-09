@@ -103,7 +103,7 @@ public class AiQaController {
      * - stream: 是否流式输出（可选，默认false）
      */
     @PostMapping(value = "/chat", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<?> chatWithAi(
+    public Object chatWithAi(
             @RequestParam("question") String question,
             @RequestParam(value = "file", required = false) MultipartFile file,
             @RequestParam(value = "sessionId", required = false) String sessionIdParam,
@@ -113,39 +113,41 @@ public class AiQaController {
         log.info("AI聊天接口被调用，问题: {}, stream: {}", question, streamParam);
 
         try {
-            // 1. 验证认证头
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                log.warn("缺少或无效的认证头");
-                return ResponseEntity.status(401)
-                        .body(Map.of("code", 401, "message", "未授权"));
-            }
-
-            // 2. 解析token - 使用正确的方法
-            Long userId = validateAndExtractUserId(authHeader); // ✅ 使用这个方法
+            // 1. 验证用户
+            Long userId = validateAndExtractUserId(authHeader);
             if (userId == null) {
                 return ResponseEntity.status(401)
-                        .body(Map.of("code", 401, "message", "用户验证失败"));
+                        .body(Map.of("code", 401, "message", "未授权或Token无效"));
             }
 
-            // 3. 处理参数
+            // 2. 处理会话ID
             String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
                     ? sessionIdParam
-                    : "sess_" + System.currentTimeMillis();
+                    : generateSessionId();
 
+            // 3. 检查是否流式输出
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
 
-            // 4. 根据stream参数选择处理方式
             if (stream) {
-                log.info("使用流式输出模式");
+                // 流式输出 - 如果有文件，不支持流式
+                if (file != null && !file.isEmpty()) {
+                    // 返回普通响应（错误信息）
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("code", 400, "message", "暂不支持流式输出时上传文件"));
+                }
+                // ✅ 直接返回SseEmitter
+                log.info("调用流式聊天处理，返回SseEmitter");
                 return handleStreamChat(question, userId, sessionId);
             } else {
+                // 普通输出 - 返回ResponseEntity
+                log.info("调用普通聊天处理，返回ResponseEntity");
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
         } catch (Exception e) {
             log.error("AI接口异常", e);
             return ResponseEntity.status(500)
-                    .body(Map.of("code", 500, "message", "服务器错误: " + e.getMessage()));
+                    .body(Map.of("code", 500, "message", "服务器内部错误"));
         }
     }
 
@@ -210,13 +212,14 @@ public class AiQaController {
     /**
      * 处理流式聊天响应
      */
-    private ResponseEntity<?> handleStreamChat(String question, Long userId, String sessionId) {
-        // 创建SSE Emitter并返回
+    private SseEmitter handleStreamChat(String question, Long userId, String sessionId) {
+        log.info("创建SSE Emitter，用户: {}, 会话: {}", userId, sessionId);
+
         SseEmitter emitter = new SseEmitter(120000L);
 
-        emitter.onCompletion(() -> log.info("统一接口SSE连接完成"));
+        emitter.onCompletion(() -> log.info("SSE连接完成: sessionId={}", sessionId));
         emitter.onTimeout(() -> {
-            log.warn("统一接口SSE连接超时");
+            log.warn("SSE连接超时: sessionId={}", sessionId);
             emitter.complete();
         });
 
@@ -229,10 +232,7 @@ public class AiQaController {
             }
         });
 
-        // 注意：这里直接返回SseEmitter，Spring会自动处理SSE响应
-        return ResponseEntity.ok()
-                .contentType(MediaType.TEXT_EVENT_STREAM)
-                .body(emitter);
+        return emitter;
     }
 
     /**
