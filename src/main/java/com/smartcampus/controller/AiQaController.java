@@ -110,63 +110,42 @@ public class AiQaController {
             @RequestParam(value = "stream", defaultValue = "false") String streamParam,
             @RequestHeader(value = "Authorization") String authHeader) {
 
-        log.info("AI聊天接口被调用，问题: {}, stream: {}, 文件: {}, sessionId: {}",
-                question, streamParam,
-                file != null ? file.getOriginalFilename() : "无",
-                sessionIdParam);
+        log.info("AI聊天接口被调用，问题: {}, stream: {}", question, streamParam);
 
         try {
-            // 1. 验证用户 - 添加详细日志
-            log.debug("开始验证Token: {}", authHeader != null ? authHeader.substring(0, Math.min(20, authHeader.length())) + "..." : "null");
-            Long userId = validateAndExtractUserId(authHeader);
-            log.info("Token验证结果 - userId: {}", userId);
-
-            if (userId == null) {
-                log.warn("Token验证失败或用户不存在");
+            // 1. 验证认证头
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                log.warn("缺少或无效的认证头");
                 return ResponseEntity.status(401)
-                        .body(Map.of("code", 401, "message", "未授权或Token无效"));
+                        .body(Map.of("code", 401, "message", "未授权"));
             }
 
-            // 2. 处理会话ID
+            // 2. 解析token - 使用正确的方法
+            Long userId = validateAndExtractUserId(authHeader); // ✅ 使用这个方法
+            if (userId == null) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("code", 401, "message", "用户验证失败"));
+            }
+
+            // 3. 处理参数
             String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
                     ? sessionIdParam
-                    : generateSessionId();
-            log.info("使用的sessionId: {}", sessionId);
+                    : "sess_" + System.currentTimeMillis();
 
-            // 3. 检查是否流式输出
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
-            log.info("是否为流式输出: {}", stream);
 
+            // 4. 根据stream参数选择处理方式
             if (stream) {
-                // 流式输出 - 如果有文件，不支持流式
-                if (file != null && !file.isEmpty()) {
-                    log.warn("流式模式下不支持文件上传");
-                    return ResponseEntity.badRequest()
-                            .body(Map.of("code", 400, "message", "暂不支持流式输出时上传文件"));
-                }
-                // 返回SSE流
-                log.info("调用流式聊天处理");
+                log.info("使用流式输出模式");
                 return handleStreamChat(question, userId, sessionId);
             } else {
-                // 普通输出
-                log.info("调用普通聊天处理");
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
         } catch (Exception e) {
-            log.error("AI接口异常 - 问题: {}, 流式: {}", question, streamParam, e);
-
-            // 返回更详细的错误信息（开发环境）
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("code", 500);
-            errorResponse.put("message", "服务器内部错误");
-
-            // 开发环境返回详细错误
-            errorResponse.put("error", e.getClass().getName());
-            errorResponse.put("errorMessage", e.getMessage());
-            errorResponse.put("timestamp", new Date());
-
-            return ResponseEntity.status(500).body(errorResponse);
+            log.error("AI接口异常", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "服务器错误: " + e.getMessage()));
         }
     }
 
@@ -402,40 +381,45 @@ public class AiQaController {
      * 验证并提取用户ID
      */
     private Long validateAndExtractUserId(String authHeader) {
-        log.debug("验证Token开始，authHeader: {}",
-                authHeader != null ? authHeader.substring(0, Math.min(20, authHeader.length())) + "..." : "null");
+        log.info("=== 开始验证Token ===");
+        log.info("authHeader: {}", authHeader);
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            log.warn("Authorization头格式错误或缺失");
+        if (authHeader == null) {
+            log.warn("authHeader为null");
+            return null;
+        }
+
+        if (!authHeader.startsWith("Bearer ")) {
+            log.warn("authHeader不以'Bearer '开头: {}", authHeader);
             return null;
         }
 
         try {
             String token = authHeader.substring(7);
-            log.debug("提取到的Token长度: {}", token.length());
+            log.info("提取的token长度: {}", token.length());
 
-            // 先验证token是否有效
-            if (!jwtUtil.validateToken(token)) {
+            // 检查jwtUtil是否为空
+            if (jwtUtil == null) {
+                log.error("❌ jwtUtil为null，依赖注入失败！");
+                return null;
+            }
+
+            log.info("调用jwtUtil.validateToken...");
+            boolean isValid = jwtUtil.validateToken(token);
+            log.info("Token验证结果: {}", isValid);
+
+            if (!isValid) {
                 log.warn("Token验证失败");
                 return null;
             }
 
             Long userId = jwtUtil.getUserIdFromToken(token);
-            log.info("Token验证成功，用户ID: {}", userId);
-
-            // 验证用户是否存在
-            if (userId != null) {
-                boolean userExists = userRepository.existsById(Math.toIntExact(userId));
-                if (!userExists) {
-                    log.warn("用户不存在，ID: {}", userId);
-                    return null;
-                }
-                log.debug("用户存在验证通过");
-            }
+            log.info("提取的userId: {}", userId);
 
             return userId;
+
         } catch (Exception e) {
-            log.error("Token解析失败", e);
+            log.error("❌ Token解析异常", e);
             return null;
         }
     }
