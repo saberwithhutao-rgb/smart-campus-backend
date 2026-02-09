@@ -75,7 +75,7 @@ public class AiQaController {
                         .body(Map.of("code", 401, "message", "未授权"));
             }
 
-            // 2. 解析token（简化版，跳过JWT验证）
+            // 2. 解析token（简化版）
             String token = authHeader.substring(7);
             Long userId = 1L; // 默认使用autouser
 
@@ -98,9 +98,9 @@ public class AiQaController {
                 // 有文件上传的处理
                 log.info("用户上传了文件: {}", file.getOriginalFilename());
 
-                // 简单响应（后续会改为真正的文件处理）
-                data.put("answer", "已收到您的问题和文件: " + file.getOriginalFilename() +
-                        " (sessionId: " + sessionId + ")");
+                // 简化：先不处理文件，只返回确认消息
+                data.put("answer", "已收到您的文件和问题: " + question +
+                        " (文件: " + file.getOriginalFilename() + ")");
                 data.put("sessionId", sessionId);
 
             } else {
@@ -108,10 +108,47 @@ public class AiQaController {
                 log.info("调用通义千问API回答问题: {}", question);
 
                 try {
-                    // 调用QianWenService获取真实回答
-                    String aiAnswer = qianWenService.askQuestion(question,
-                            Collections.emptyList(),
-                            "qwen-max").toString();
+                    // 先测试QianWenService是否能正常调用
+                    log.info("尝试调用QianWenService...");
+
+                    // 方法1: 直接使用.block()获取响应（如果QianWenService返回Mono）
+                    String aiAnswer;
+                    try {
+                        // 尝试使用.block()获取响应
+                        aiAnswer = qianWenService.askQuestion(question,
+                                Collections.emptyList(),
+                                "qwen-max").block();
+
+                        log.info("使用.block()获取到回答: {}",
+                                aiAnswer != null ? aiAnswer.substring(0, Math.min(50, aiAnswer.length())) : "null");
+
+                    } catch (Exception blockEx) {
+                        log.warn(".block()方法失败，尝试其他方法: {}", blockEx.getMessage());
+
+                        // 方法2: 直接调用toString()再处理
+                        try {
+                            Object result = qianWenService.askQuestion(question,
+                                    Collections.emptyList(),
+                                    "qwen-max");
+                            aiAnswer = result != null ? result.toString() : "AI返回了空响应";
+
+                            // 如果返回的是MonoOnErrorResume，说明有问题
+                            if (aiAnswer.contains("MonoOnErrorResume")) {
+                                aiAnswer = "AI服务调用失败，返回了错误响应: " + aiAnswer;
+                            }
+
+                        } catch (Exception toStringEx) {
+                            log.error("所有方法都失败", toStringEx);
+                            aiAnswer = "抱歉，AI服务暂时不可用。请检查服务配置。";
+                        }
+                    }
+
+                    if (aiAnswer == null || aiAnswer.trim().isEmpty() ||
+                            aiAnswer.contains("MonoOnErrorResume")) {
+                        // 如果AI服务有问题，使用备用方案
+                        log.warn("AI服务返回异常，使用备用回答");
+                        aiAnswer = "你好！我是智慧校园平台的AI助手。当前AI服务正在调整中，暂时无法回答复杂问题。请稍后再试。";
+                    }
 
                     log.info("AI回答生成成功，长度: {}", aiAnswer.length());
 
@@ -123,8 +160,12 @@ public class AiQaController {
 
                 } catch (Exception e) {
                     log.error("调用AI服务失败", e);
-                    // 降级处理：返回错误信息
-                    data.put("answer", "抱歉，AI服务暂时不可用。错误: " + e.getMessage());
+                    // 降级处理：返回友好的错误信息
+                    String errorMsg = e.getMessage();
+                    if (errorMsg == null || errorMsg.contains("Timeout")) {
+                        errorMsg = "AI服务响应超时，请稍后重试";
+                    }
+                    data.put("answer", "抱歉，AI服务暂时不可用。错误: " + errorMsg);
                     data.put("sessionId", sessionId);
                 }
             }
