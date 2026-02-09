@@ -86,15 +86,48 @@ public class AiQaController {
 
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
 
-            // 4. 简单响应（先确保接口能通）
+            // 4. 构建响应结构
             Map<String, Object> response = new HashMap<>();
             response.put("code", 200);
             response.put("message", "success");
 
             Map<String, Object> data = new HashMap<>();
-            data.put("answer", "已收到您的问题: " + question +
-                    " (sessionId: " + sessionId + ", stream: " + stream + ")");
-            data.put("sessionId", sessionId);
+
+            // 5. 根据是否有文件选择处理方式
+            if (file != null && !file.isEmpty()) {
+                // 有文件上传的处理
+                log.info("用户上传了文件: {}", file.getOriginalFilename());
+
+                // 简单响应（后续会改为真正的文件处理）
+                data.put("answer", "已收到您的问题和文件: " + file.getOriginalFilename() +
+                        " (sessionId: " + sessionId + ")");
+                data.put("sessionId", sessionId);
+
+            } else {
+                // 纯文本问题 - 调用真正的AI服务
+                log.info("调用通义千问API回答问题: {}", question);
+
+                try {
+                    // 调用QianWenService获取真实回答
+                    String aiAnswer = qianWenService.askQuestion(question,
+                            Collections.emptyList(),
+                            "qwen-max").toString();
+
+                    log.info("AI回答生成成功，长度: {}", aiAnswer.length());
+
+                    // 保存对话记录
+                    saveConversation(userId.toString(), sessionId, question, aiAnswer, null);
+
+                    data.put("answer", aiAnswer);  // ✅ 真正的AI回答！
+                    data.put("sessionId", sessionId);
+
+                } catch (Exception e) {
+                    log.error("调用AI服务失败", e);
+                    // 降级处理：返回错误信息
+                    data.put("answer", "抱歉，AI服务暂时不可用。错误: " + e.getMessage());
+                    data.put("sessionId", sessionId);
+                }
+            }
 
             response.put("data", data);
 
