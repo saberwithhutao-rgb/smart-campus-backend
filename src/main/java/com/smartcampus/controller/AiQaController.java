@@ -110,12 +110,19 @@ public class AiQaController {
             @RequestParam(value = "stream", defaultValue = "false") String streamParam,
             @RequestHeader(value = "Authorization") String authHeader) {
 
-        log.info("AI聊天接口被调用，问题: {}, stream: {}", question, streamParam);
+        log.info("AI聊天接口被调用，问题: {}, stream: {}, 文件: {}, sessionId: {}",
+                question, streamParam,
+                file != null ? file.getOriginalFilename() : "无",
+                sessionIdParam);
 
         try {
-            // 1. 验证用户
+            // 1. 验证用户 - 添加详细日志
+            log.debug("开始验证Token: {}", authHeader != null ? authHeader.substring(0, Math.min(20, authHeader.length())) + "..." : "null");
             Long userId = validateAndExtractUserId(authHeader);
+            log.info("Token验证结果 - userId: {}", userId);
+
             if (userId == null) {
+                log.warn("Token验证失败或用户不存在");
                 return ResponseEntity.status(401)
                         .body(Map.of("code", 401, "message", "未授权或Token无效"));
             }
@@ -124,27 +131,42 @@ public class AiQaController {
             String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
                     ? sessionIdParam
                     : generateSessionId();
+            log.info("使用的sessionId: {}", sessionId);
 
             // 3. 检查是否流式输出
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
+            log.info("是否为流式输出: {}", stream);
 
             if (stream) {
                 // 流式输出 - 如果有文件，不支持流式
                 if (file != null && !file.isEmpty()) {
+                    log.warn("流式模式下不支持文件上传");
                     return ResponseEntity.badRequest()
                             .body(Map.of("code", 400, "message", "暂不支持流式输出时上传文件"));
                 }
                 // 返回SSE流
+                log.info("调用流式聊天处理");
                 return handleStreamChat(question, userId, sessionId);
             } else {
                 // 普通输出
+                log.info("调用普通聊天处理");
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
         } catch (Exception e) {
-            log.error("AI接口异常", e);
-            return ResponseEntity.status(500)
-                    .body(Map.of("code", 500, "message", "服务器内部错误"));
+            log.error("AI接口异常 - 问题: {}, 流式: {}", question, streamParam, e);
+
+            // 返回更详细的错误信息（开发环境）
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("code", 500);
+            errorResponse.put("message", "服务器内部错误");
+
+            // 开发环境返回详细错误
+            errorResponse.put("error", e.getClass().getName());
+            errorResponse.put("errorMessage", e.getMessage());
+            errorResponse.put("timestamp", new Date());
+
+            return ResponseEntity.status(500).body(errorResponse);
         }
     }
 
@@ -380,6 +402,9 @@ public class AiQaController {
      * 验证并提取用户ID
      */
     private Long validateAndExtractUserId(String authHeader) {
+        log.debug("验证Token开始，authHeader: {}",
+                authHeader != null ? authHeader.substring(0, Math.min(20, authHeader.length())) + "..." : "null");
+
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
             log.warn("Authorization头格式错误或缺失");
             return null;
@@ -387,12 +412,28 @@ public class AiQaController {
 
         try {
             String token = authHeader.substring(7);
+            log.debug("提取到的Token长度: {}", token.length());
+
             // 先验证token是否有效
             if (!jwtUtil.validateToken(token)) {
                 log.warn("Token验证失败");
                 return null;
             }
-            return jwtUtil.getUserIdFromToken(token);
+
+            Long userId = jwtUtil.getUserIdFromToken(token);
+            log.info("Token验证成功，用户ID: {}", userId);
+
+            // 验证用户是否存在
+            if (userId != null) {
+                boolean userExists = userRepository.existsById(Math.toIntExact(userId));
+                if (!userExists) {
+                    log.warn("用户不存在，ID: {}", userId);
+                    return null;
+                }
+                log.debug("用户存在验证通过");
+            }
+
+            return userId;
         } catch (Exception e) {
             log.error("Token解析失败", e);
             return null;
@@ -600,42 +641,76 @@ public class AiQaController {
     }
 
     /**
-     * 诊断端点（用于调试）
+     * 诊断端点，检查各组件状态
      */
-    @PostMapping(value = "/chat/diagnose", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<Map<String, Object>> diagnoseMultipart(
-            @RequestParam(value = "question", required = false) String question,
-            @RequestParam(value = "file", required = false) MultipartFile file,
-            @RequestParam(value = "sessionId", required = false) String sessionId,
-            @RequestParam(value = "stream", required = false) String streamStr,
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
-            HttpServletRequest rawRequest) {
+    @PostMapping("/chat/diagnose")
+    public ResponseEntity<?> diagnose(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
 
-        Map<String, Object> logMap = new HashMap<>();
+        Map<String, Object> status = new HashMap<>();
+        status.put("timestamp", new Date());
+        status.put("service", "smart-campus-ai");
 
-        // 1. 记录接收到的原始参数
-        logMap.put("收到参数 - question", question);
-        logMap.put("收到参数 - sessionId", sessionId);
-        logMap.put("收到参数 - streamStr", streamStr);
-        logMap.put("收到参数 - file为空", file == null || file.isEmpty());
-        logMap.put("收到参数 - authHeader存在", authHeader != null && authHeader.startsWith("Bearer "));
+        try {
+            // 1. 检查Token验证
+            if (authHeader != null && authHeader.startsWith("Bearer ")) {
+                String token = authHeader.substring(7);
+                status.put("tokenLength", token.length());
+                status.put("tokenValid", jwtUtil.validateToken(token));
 
-        // 2. 记录Spring无法解析的所有参数名
-        Enumeration<String> paramNames = rawRequest.getParameterNames();
-        List<String> springParamNames = Collections.list(paramNames);
-        logMap.put("Spring解析的参数名列表", springParamNames);
+                if (jwtUtil.validateToken(token)) {
+                    Long userId = jwtUtil.getUserIdFromToken(token);
+                    status.put("userId", userId);
+                    status.put("userExists", userId != null && userRepository.existsById(Math.toIntExact(userId)));
+                }
+            }
 
-        // 3. 检查请求内容类型
-        logMap.put("请求Content-Type", rawRequest.getContentType());
+            // 2. 检查AI服务
+            try {
+                // 尝试简单调用AI服务
+                String testResponse = qianWenService.askQuestion("测试",
+                                Collections.emptyList(), "qwen-max")
+                        .block(Duration.ofSeconds(5));
+                status.put("aiService", "正常");
+                status.put("aiResponseLength", testResponse != null ? testResponse.length() : 0);
+            } catch (Exception e) {
+                status.put("aiService", "异常: " + e.getMessage());
+            }
 
-        // 4. 直接返回诊断信息
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 200);
-        response.put("message", "诊断端点调用成功");
-        response.put("data", logMap);
+            // 3. 检查数据库
+            try {
+                long userCount = userRepository.count();
+                long conversationCount = aiConversationRepository.count();
+                status.put("database", "正常");
+                status.put("userCount", userCount);
+                status.put("conversationCount", conversationCount);
+            } catch (Exception e) {
+                status.put("database", "异常: " + e.getMessage());
+            }
 
-        log.info("诊断端点调用详情：{}", logMap);
-        return ResponseEntity.ok(response);
+            // 4. 检查线程池
+            if (executorService instanceof ThreadPoolExecutor) {
+                ThreadPoolExecutor pool = (ThreadPoolExecutor) executorService;
+                status.put("threadPool", Map.of(
+                        "activeThreads", pool.getActiveCount(),
+                        "queueSize", pool.getQueue().size(),
+                        "poolSize", pool.getPoolSize()
+                ));
+            }
+
+            status.put("code", 200);
+            status.put("message", "诊断完成");
+
+            return ResponseEntity.ok(status);
+
+        } catch (Exception e) {
+            log.error("诊断端点异常", e);
+            status.put("code", 500);
+            status.put("message", "诊断失败: " + e.getMessage());
+            status.put("error", e.getClass().getName());
+
+            return ResponseEntity.status(500).body(status);
+        }
     }
 
     /**
