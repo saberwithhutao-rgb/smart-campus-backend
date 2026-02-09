@@ -259,7 +259,7 @@ public class AiQaController {
                 String aiAnswer = qianWenService.askQuestion(question,
                                 Collections.emptyList(),
                                 "qwen-max")
-                        .block(Duration.ofSeconds(30));
+                        .block(Duration.ofSeconds(90));
 
                 if (aiAnswer == null || aiAnswer.trim().isEmpty()) {
                     aiAnswer = "AI服务返回空响应，请稍后重试。";
@@ -307,7 +307,7 @@ public class AiQaController {
         // 调用 AI 服务
         String fullAnswer = qianWenService.askQuestion(question,
                         Collections.emptyList(), "qwen-max")
-                .block(Duration.ofSeconds(60));
+                .block(Duration.ofSeconds(90));
 
         if (fullAnswer == null) {
             fullAnswer = "AI服务暂时不可用，请稍后重试。";
@@ -467,7 +467,7 @@ public class AiQaController {
                 String aiAnswer = qianWenService.askQuestion(enhancedQuestion,
                                 Collections.emptyList(),
                                 "qwen-max")
-                        .block(Duration.ofSeconds(30));
+                        .block(Duration.ofSeconds(90));
 
                 // 5. 保存对话记录
                 saveConversation(Long.parseLong(userId), sessionId, question, aiAnswer, learningFile.getId());
@@ -654,7 +654,7 @@ public class AiQaController {
                 // 尝试简单调用AI服务
                 String testResponse = qianWenService.askQuestion("测试",
                                 Collections.emptyList(), "qwen-max")
-                        .block(Duration.ofSeconds(5));
+                        .block(Duration.ofSeconds(90));
                 status.put("aiService", "正常");
                 status.put("aiResponseLength", testResponse != null ? testResponse.length() : 0);
             } catch (Exception e) {

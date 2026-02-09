@@ -106,7 +106,7 @@ ai:
   qianwen:
     api-key: ${AI_QIANWEN_API_KEY:sk-131e010e2b4a4fd3a7c41ef3e3ae10d8}
     api-url: ${AI_QIANWEN_API_URL:https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions}
-    timeout: 30000
+    timeout: 90000
     model: qwen-max  # 固定模型，按你要求
 
   embedding:

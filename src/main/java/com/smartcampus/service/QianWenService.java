@@ -61,7 +61,7 @@ public class QianWenService {
                         return Mono.error(e);
                     }
                 })
-                .timeout(Duration.ofSeconds(30))
+                .timeout(Duration.ofSeconds(90))
                 .onErrorResume(e -> {
                     log.error("调用通义千问API失败: {}", e.getMessage());
                     // 降级策略：返回友好提示
