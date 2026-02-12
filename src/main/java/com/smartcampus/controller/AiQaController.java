@@ -137,9 +137,9 @@ public class AiQaController {
         }
     }
 
+
     /**
      * ✅ 真正的流式问答接口 - 直接返回通义千问原生流式格式
-     * 返回格式: data: {"output":{"text":"xxx","finish_reason":null}}
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> chatStream(
@@ -158,11 +158,11 @@ public class AiQaController {
 
         log.info("✅ 通义千问原生流式开始，用户: {}, 会话: {}", userId, finalSessionId);
 
-        // ✅ 直接转发通义千问的流式响应，不做任何包装
+        // 🟢🟢🟢 关键修复：确保返回的是SSE格式 🟢🟢🟢
         return qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
+                .map(chunk -> "data: " + chunk + "\n\n")  // 必须包装成SSE格式！
                 .doOnComplete(() -> {
                     log.info("流式输出完成，会话ID: {}", finalSessionId);
-                    // 注意：这里无法保存完整对话，需要前端回调
                 })
                 .doOnError(error -> {
                     log.error("流式输出错误", error);
