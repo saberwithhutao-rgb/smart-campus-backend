@@ -159,7 +159,6 @@ public class AiQaController {
         log.info("✅ 通义千问原生流式开始，用户: {}, 会话: {}", userId, finalSessionId);
 
         return qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
-                .map(chunk -> "data: " + chunk + "\n\n")
                 .doOnComplete(() -> {
                     log.info("流式输出完成，会话ID: {}", finalSessionId);
                 })
