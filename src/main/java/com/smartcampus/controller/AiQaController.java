@@ -158,9 +158,8 @@ public class AiQaController {
 
         log.info("✅ 通义千问原生流式开始，用户: {}, 会话: {}", userId, finalSessionId);
 
-        // 🟢🟢🟢 关键修复：确保返回的是SSE格式 🟢🟢🟢
         return qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
-                .map(chunk -> "data: " + chunk + "\n\n")  // 必须包装成SSE格式！
+                .map(chunk -> "data: " + chunk + "\n\n")
                 .doOnComplete(() -> {
                     log.info("流式输出完成，会话ID: {}", finalSessionId);
                 })
