@@ -1,9 +1,4 @@
 spring:
-  mvc:
-    throw-exception-if-no-handler-found: true  # 🟢 必须添加！
-  web:
-    resources:
-      add-mappings: false  # 🟢 禁用默认的静态资源映射
   # 数据源配置 - 使用你的实际用户名和密码
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_campus
