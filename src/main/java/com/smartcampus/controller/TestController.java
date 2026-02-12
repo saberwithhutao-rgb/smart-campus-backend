@@ -620,7 +620,6 @@ public class TestController {
 
             Map<String, Object> data = new HashMap<>();
             data.put("token", token);
-            data.put("userId", user.getId());
             data.put("role", user.getRole());
             data.put("username", user.getUsername());
             data.put("email", user.getEmail() != null ? user.getEmail() : "");
