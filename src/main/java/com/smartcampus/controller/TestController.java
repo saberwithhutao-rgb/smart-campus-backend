@@ -610,18 +610,27 @@ public class TestController {
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
 
-            // 5. 生成模拟token
+            // 5. 生成token
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
-            // 6. 构建返回数据
+            // ✅ 6. 返回完整的用户信息
             Map<String, Object> response = new HashMap<>();
             response.put("code", 200);
             response.put("message", "登录成功");
 
             Map<String, Object> data = new HashMap<>();
             data.put("token", token);
-            data.put("role", user.getRole()); // 假设角色已经是"student"或"admin"
+            data.put("userId", user.getId());
+            data.put("role", user.getRole());
             data.put("username", user.getUsername());
+            data.put("email", user.getEmail() != null ? user.getEmail() : "");
+            data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
+            data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
+            data.put("major", user.getMajor() != null ? user.getMajor() : "");
+            data.put("college", user.getCollege() != null ? user.getCollege() : "");
+            data.put("grade", user.getGrade() != null ? user.getGrade() : "");
+            data.put("gender", user.getGender());
+            data.put("genderText", user.getGenderText());
 
             response.put("data", data);
 
