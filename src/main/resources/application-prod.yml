@@ -1,4 +1,9 @@
 spring:
+  mvc:
+    throw-exception-if-no-handler-found:
+  web:
+    resources:
+      add-mappings: false
   # 数据源配置 - 使用你的实际用户名和密码
   datasource:
     url: jdbc:postgresql://localhost:5432/smart_campus
