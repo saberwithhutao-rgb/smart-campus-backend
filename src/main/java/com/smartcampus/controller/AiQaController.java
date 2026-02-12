@@ -23,6 +23,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Flux;
 
+import java.io.IOException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -115,18 +116,15 @@ public class AiQaController {
 
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
 
-            // ✅ 流式输出 - 直接返回通义千问原生流式
             if (stream) {
                 // 流式不支持文件上传
                 if (file != null && !file.isEmpty()) {
                     return ResponseEntity.badRequest()
                             .body(Map.of("code", 400, "message", "流式输出暂不支持文件上传"));
                 }
-                // ✅ 直接返回Flux，通义千问原生格式
+                // ✅ 直接调用SseEmitter版本
                 return chatStream(question, sessionId, authHeader);
-            }
-            // 非流式输出
-            else {
+            } else {
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
@@ -137,34 +135,74 @@ public class AiQaController {
         }
     }
 
-
     /**
-     * ✅ 真正的流式问答接口 - 直接返回通义千问原生流式格式
+     * ✅ 真正的流式问答接口 - 使用 SseEmitter 实现真正的流式输出
+     * POST /ai/chat/stream
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatStream(
+    public SseEmitter chatStream(
             @RequestParam("question") String question,
             @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestHeader("Authorization") String authHeader) {
 
+        // 验证用户
         Long userId = validateAndExtractUserId(authHeader);
         if (userId == null) {
-            return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "未授权"));
+            SseEmitter emitter = new SseEmitter();
+            emitter.completeWithError(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "未授权"));
+            return emitter;
         }
 
         String finalSessionId = (sessionId != null && !sessionId.isEmpty())
                 ? sessionId
                 : generateSessionId();
 
-        log.info("✅ 通义千问原生流式开始，用户: {}, 会话: {}", userId, finalSessionId);
+        log.info("✅ SSE流式开始，用户: {}, 会话: {}", userId, finalSessionId);
 
-        return qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
+        // 创建SseEmitter，设置超时时间2分钟
+        SseEmitter emitter = new SseEmitter(120000L);
+
+        // 设置完成回调
+        emitter.onCompletion(() -> {
+            log.info("SSE连接完成，会话ID: {}", finalSessionId);
+        });
+
+        // 设置超时回调
+        emitter.onTimeout(() -> {
+            log.warn("SSE连接超时，会话ID: {}", finalSessionId);
+            emitter.complete();
+        });
+
+        // 设置错误回调
+        emitter.onError((ex) -> {
+            log.error("SSE连接错误，会话ID: {}", finalSessionId, ex);
+            emitter.completeWithError(ex);
+        });
+
+        // 🟢🟢🟢 订阅通义千问流式响应，实时转发 🟢🟢🟢
+        qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
+                .doOnNext(chunk -> {
+                    try {
+                        // 通义千问返回的chunk已经是完整的SSE格式: data: {...}\n\n
+                        // 直接发送给前端，不做任何包装
+                        emitter.send(chunk);
+                        log.debug("发送chunk: {}", chunk.substring(0, Math.min(50, chunk.length())));
+                    } catch (IOException e) {
+                        log.error("发送SSE数据失败", e);
+                        throw new RuntimeException("发送失败", e);
+                    }
+                })
                 .doOnComplete(() -> {
-                    log.info("流式输出完成，会话ID: {}", finalSessionId);
+                    log.info("通义千问流式完成，会话ID: {}", finalSessionId);
+                    emitter.complete();
                 })
                 .doOnError(error -> {
-                    log.error("流式输出错误", error);
-                });
+                    log.error("通义千问流式错误", error);
+                    emitter.completeWithError(error);
+                })
+                .subscribe(); // 必须订阅
+
+        return emitter;
     }
 
     /**
