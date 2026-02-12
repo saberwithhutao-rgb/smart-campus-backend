@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import reactor.core.publisher.Flux;
 
 import java.net.URI;
 import java.time.Duration;
@@ -59,13 +60,10 @@ public class AiQaController {
 
     @PostConstruct
     public void init() {
-        // 使用可配置的线程池
         executorService = new ThreadPoolExecutor(
-                5, // 核心线程数
-                20, // 最大线程数
-                60L, TimeUnit.SECONDS, // 空闲时间
-                new LinkedBlockingQueue<>(100), // 任务队列
-                new ThreadPoolExecutor.CallerRunsPolicy() // 拒绝策略
+                5, 20, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(100),
+                new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
 
@@ -86,21 +84,13 @@ public class AiQaController {
 
     @GetMapping("/chat")
     public ResponseEntity<Void> handleChatPage() {
-        log.info("收到GET请求到/ai/chat，重定向到首页");
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create("/"))
                 .build();
     }
 
     /**
-     * 统一的智能问答接口（支持流式和非流式）
-     * POST /ai/chat
-     *
-     * 请求参数：
-     * - question: 问题内容（必需）
-     * - file: 文件（可选）
-     * - sessionId: 会话ID（可选）
-     * - stream: 是否流式输出（可选，默认false）
+     * 统一智能问答接口 - 根据stream参数选择模式
      */
     @PostMapping(value = "/chat", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Object chatWithAi(
@@ -113,34 +103,30 @@ public class AiQaController {
         log.info("AI聊天接口被调用，问题: {}, stream: {}", question, streamParam);
 
         try {
-            // 1. 验证用户
             Long userId = validateAndExtractUserId(authHeader);
             if (userId == null) {
                 return ResponseEntity.status(401)
                         .body(Map.of("code", 401, "message", "未授权或Token无效"));
             }
 
-            // 2. 处理会话ID
             String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
                     ? sessionIdParam
                     : generateSessionId();
 
-            // 3. 检查是否流式输出
             boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
 
+            // ✅ 流式输出 - 直接返回通义千问原生流式
             if (stream) {
-                // 流式输出 - 如果有文件，不支持流式
+                // 流式不支持文件上传
                 if (file != null && !file.isEmpty()) {
-                    // 返回普通响应（错误信息）
                     return ResponseEntity.badRequest()
-                            .body(Map.of("code", 400, "message", "暂不支持流式输出时上传文件"));
+                            .body(Map.of("code", 400, "message", "流式输出暂不支持文件上传"));
                 }
-                // ✅ 直接返回SseEmitter
-                log.info("调用流式聊天处理，返回SseEmitter");
-                return handleStreamChat(question, userId, sessionId);
-            } else {
-                // 普通输出 - 返回ResponseEntity
-                log.info("调用普通聊天处理，返回ResponseEntity");
+                // ✅ 直接返回Flux，通义千问原生格式
+                return chatStream(question, sessionId, authHeader);
+            }
+            // 非流式输出
+            else {
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
@@ -152,229 +138,85 @@ public class AiQaController {
     }
 
     /**
-     * 专门的流式问答接口
-     * POST /ai/chat/stream
+     * ✅ 真正的流式问答接口 - 直接返回通义千问原生流式格式
+     * 返回格式: data: {"output":{"text":"xxx","finish_reason":null}}
      */
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chatStream(
+    public Flux<String> chatStream(
             @RequestParam("question") String question,
-            @RequestParam(value = "sessionId", required = false) String sessionIdParam,
+            @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestHeader("Authorization") String authHeader) {
 
-        // 验证用户
         Long userId = validateAndExtractUserId(authHeader);
         if (userId == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "未授权");
+            return Flux.error(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "未授权"));
         }
 
-        String sessionId = (sessionIdParam != null && !sessionIdParam.isEmpty())
-                ? sessionIdParam
+        String finalSessionId = (sessionId != null && !sessionId.isEmpty())
+                ? sessionId
                 : generateSessionId();
 
-        // 创建SSE Emitter
-        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+        log.info("✅ 通义千问原生流式开始，用户: {}, 会话: {}", userId, finalSessionId);
 
-        // 设置回调
-        emitter.onCompletion(() -> log.info("SSE连接完成: sessionId={}", sessionId));
-        emitter.onTimeout(() -> {
-            log.warn("SSE连接超时: sessionId={}", sessionId);
-            emitter.complete();
-        });
-        emitter.onError(ex -> {
-            log.error("SSE连接错误: sessionId={}", sessionId, ex);
-            emitter.completeWithError(ex);
-        });
-
-        // 提交处理任务
-        executorService.submit(() -> {
-            try {
-                processStreamResponse(question, userId, sessionId, emitter);
-            } catch (Exception e) {
-                log.error("流式处理失败", e);
-                try {
-                    Map<String, Object> error = Map.of(
-                            "error", true,
-                            "message", "处理失败: " + e.getMessage()
-                    );
-                    emitter.send(SseEmitter.event()
-                            .data(objectMapper.writeValueAsString(error))
-                            .name("error"));
-                } catch (Exception ignore) {
-                    // 忽略发送错误
-                }
-                emitter.completeWithError(e);
-            }
-        });
-
-        return emitter;
+        // ✅ 直接转发通义千问的流式响应，不做任何包装
+        return qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
+                .doOnComplete(() -> {
+                    log.info("流式输出完成，会话ID: {}", finalSessionId);
+                    // 注意：这里无法保存完整对话，需要前端回调
+                })
+                .doOnError(error -> {
+                    log.error("流式输出错误", error);
+                });
     }
 
     /**
-     * 处理流式聊天响应
-     */
-    private SseEmitter handleStreamChat(String question, Long userId, String sessionId) {
-        log.info("创建SSE Emitter，用户: {}, 会话: {}", userId, sessionId);
-
-        SseEmitter emitter = new SseEmitter(120000L);
-
-        emitter.onCompletion(() -> log.info("SSE连接完成: sessionId={}", sessionId));
-        emitter.onTimeout(() -> {
-            log.warn("SSE连接超时: sessionId={}", sessionId);
-            emitter.complete();
-        });
-
-        executorService.submit(() -> {
-            try {
-                processStreamResponse(question, userId, sessionId, emitter);
-            } catch (Exception e) {
-                log.error("流式处理失败", e);
-                emitter.completeWithError(e);
-            }
-        });
-
-        return emitter;
-    }
-
-    /**
-     * 处理普通聊天响应
+     * 处理普通聊天响应（非流式）
      */
     private ResponseEntity<?> handleNormalChat(String question, MultipartFile file,
                                                Long userId, String sessionId) {
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 200);
-        response.put("message", "success");
-
-        Map<String, Object> data = new HashMap<>();
-
-        // 根据是否有文件选择处理方式
+        // 有文件上传
         if (file != null && !file.isEmpty()) {
-            // 有文件上传的处理
             return handleFileUpload(question, file, userId.toString(), sessionId);
-        } else {
-            // 纯文本问题 - 调用真正的AI服务
-            log.info("调用通义千问API回答问题: {}", question);
-
-            try {
-                String aiAnswer = qianWenService.askQuestion(question,
-                                Collections.emptyList(),
-                                "qwen-max")
-                        .block(Duration.ofSeconds(90));
-
-                if (aiAnswer == null || aiAnswer.trim().isEmpty()) {
-                    aiAnswer = "AI服务返回空响应，请稍后重试。";
-                }
-
-                // 如果回答过长，进行截断
-                if (aiAnswer.length() > 10000) {
-                    log.warn("AI回答过长，进行截断，原长度: {}", aiAnswer.length());
-                    aiAnswer = aiAnswer.substring(0, 10000) + "...\n\n（回答过长，已截断）";
-                }
-
-                // 异步保存对话记录
-                String finalAnswer = aiAnswer;
-                executorService.submit(() -> {
-                    saveConversationWithRetry(userId.toString(), sessionId, question, finalAnswer, null);
-                });
-
-                data.put("answer", aiAnswer);
-                data.put("sessionId", sessionId);
-
-            } catch (Exception e) {
-                log.error("调用AI服务失败", e);
-                String errorMsg = e.getMessage();
-                if (errorMsg != null && (errorMsg.contains("Timeout") || errorMsg.contains("超时"))) {
-                    data.put("answer", "AI服务响应超时，请稍后重试或减少问题长度。");
-                } else {
-                    data.put("answer", "AI服务暂时不可用，请稍后重试。");
-                }
-                data.put("sessionId", sessionId);
-            }
         }
 
-        response.put("data", data);
-        return ResponseEntity.ok(response);
-    }
+        // 纯文本问题
+        log.info("非流式调用通义千问: {}", question);
 
-    /**
-     * 流式响应处理核心逻辑
-     */
-    private void processStreamResponse(String question, Long userId,
-                                       String sessionId, SseEmitter emitter) throws Exception {
+        try {
+            String aiAnswer = qianWenService.askQuestion(question,
+                            Collections.emptyList(), "qwen-max")
+                    .block(Duration.ofSeconds(90));
 
-        log.info("开始流式处理用户 {} 的问题: {}, sessionId: {}", userId, question, sessionId);
+            if (aiAnswer == null || aiAnswer.trim().isEmpty()) {
+                aiAnswer = "AI服务返回空响应，请稍后重试。";
+            }
 
-        // 调用 AI 服务
-        String fullAnswer = qianWenService.askQuestion(question,
-                        Collections.emptyList(), "qwen-max")
-                .block(Duration.ofSeconds(90));
+            // 异步保存对话记录
+            String finalAnswer = aiAnswer;
+            executorService.submit(() -> {
+                saveConversationWithRetry(userId.toString(), sessionId, question, finalAnswer, null);
+            });
 
-        if (fullAnswer == null) {
-            fullAnswer = "AI服务暂时不可用，请稍后重试。";
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "success",
+                    "data", Map.of(
+                            "answer", aiAnswer,
+                            "sessionId", sessionId
+                    )
+            ));
+
+        } catch (Exception e) {
+            log.error("调用AI服务失败", e);
+            return ResponseEntity.ok(Map.of(
+                    "code", 500,
+                    "message", "AI服务暂时不可用",
+                    "data", Map.of(
+                            "answer", "AI服务响应超时，请稍后重试。",
+                            "sessionId", sessionId
+                    )
+            ));
         }
-
-        // 限制长度
-        if (fullAnswer.length() > 10000) {
-            fullAnswer = fullAnswer.substring(0, 10000) + "...";
-        }
-
-        log.info("流式输出总长度: {}", fullAnswer.length());
-
-        // 流式输出
-        int chunkSize = Math.min(200, Math.max(50, fullAnswer.length() / 40));
-        for (int i = 0; i < fullAnswer.length(); i += chunkSize) {
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-
-            int end = Math.min(i + chunkSize, fullAnswer.length());
-            String chunk = fullAnswer.substring(i, end);
-            boolean isDone = end >= fullAnswer.length();
-
-            // 构建SSE事件数据
-            Map<String, Object> eventData = new HashMap<>();
-            eventData.put("chunk", chunk);
-            eventData.put("done", isDone);
-            eventData.put("sessionId", sessionId);
-            eventData.put("progress", (double) end / fullAnswer.length());
-
-            try {
-                // 发送SSE格式的数据
-                String jsonData = objectMapper.writeValueAsString(eventData);
-                emitter.send(SseEmitter.event()
-                        .data(jsonData)
-                        .id(String.valueOf(i))
-                        .name("message"));
-
-                log.debug("发送chunk: {}-{}, 长度: {}", i, end, chunk.length());
-
-            } catch (Exception e) {
-                log.warn("发送chunk失败，可能客户端已断开", e);
-                break;
-            }
-
-            // 控制输出速度
-            try {
-                Thread.sleep(30);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-
-        // 异步保存记录
-        String finalFullAnswer = fullAnswer;
-        executorService.submit(() -> {
-            try {
-                saveConversationWithRetry(userId.toString(), sessionId, question, finalFullAnswer, null);
-                log.info("对话记录保存完成，会话ID: {}", sessionId);
-            } catch (Exception e) {
-                log.error("保存对话记录失败", e);
-            }
-        });
-
-        log.info("流式输出完成，会话ID: {}", sessionId);
-        emitter.complete();
     }
 
     /**
@@ -469,8 +311,8 @@ public class AiQaController {
                                 "qwen-max")
                         .block(Duration.ofSeconds(90));
 
-                // 5. 保存对话记录
-                saveConversation(Long.parseLong(userId), sessionId, question, aiAnswer, learningFile.getId());
+                // ✅ 5. 保存对话记录 - 修改这里
+                saveConversationToDb(Long.parseLong(userId), sessionId, question, aiAnswer, learningFile.getId());
 
                 // 6. 更新文件摘要
                 if (aiAnswer != null) {
@@ -748,10 +590,49 @@ public class AiQaController {
     }
 
     /**
-     * 辅助方法：保存对话记录
+     * 优化后的保存对话记录方法（带重试）
      */
-    private void saveConversation(Long userId, String sessionId,
-                                  String question, String answer, Long fileId) {
+    private void saveConversationWithRetry(String userId, String sessionId,
+                                           String question, String answer, Long fileId) {
+        int maxRetries = 3;
+        int retryCount = 0;
+
+        while (retryCount < maxRetries) {
+            try {
+                saveConversationToDb(Long.parseLong(userId), sessionId, question, answer, fileId);
+                log.info("对话记录保存成功，长度: {}", answer.length());
+                return;
+            } catch (Exception e) {
+                retryCount++;
+                log.warn("保存对话记录失败，重试 {}/{}，错误: {}",
+                        retryCount, maxRetries, e.getMessage());
+
+                if (retryCount >= maxRetries) {
+                    log.error("保存对话记录最终失败", e);
+                    // 尝试保存简化版本
+                    try {
+                        String shortAnswer = answer.length() > 5000 ?
+                                answer.substring(0, 5000) + "..." : answer;
+                        saveConversationToDb(Long.parseLong(userId), sessionId, question, shortAnswer, fileId);
+                        log.info("已保存简化版对话记录");
+                    } catch (Exception ex) {
+                        log.error("连简化版也保存失败", ex);
+                    }
+                } else {
+                    try {
+                        TimeUnit.SECONDS.sleep(retryCount); // 指数退避
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    // 将数据库保存方法改名
+    private void saveConversationToDb(Long userId, String sessionId,
+                                      String question, String answer, Long fileId) {
         AiConversation conversation = new AiConversation();
         conversation.setUserId(userId);
         conversation.setSessionId(sessionId);
@@ -768,45 +649,22 @@ public class AiQaController {
         aiConversationRepository.save(conversation);
     }
 
+
     /**
-     * 优化后的保存对话记录方法（带重试）
+     * 保存对话请求体
      */
-    private void saveConversationWithRetry(String userId, String sessionId,
-                                           String question, String answer, Long fileId) {
-        int maxRetries = 3;
-        int retryCount = 0;
+    class SaveConversationRequest {
+        private String sessionId;
+        private String question;
+        private String answer;
 
-        while (retryCount < maxRetries) {
-            try {
-                saveConversation(Long.parseLong(userId), sessionId, question, answer, fileId);
-                log.info("对话记录保存成功，长度: {}", answer.length());
-                return;
-            } catch (Exception e) {
-                retryCount++;
-                log.warn("保存对话记录失败，重试 {}/{}，错误: {}",
-                        retryCount, maxRetries, e.getMessage());
-
-                if (retryCount >= maxRetries) {
-                    log.error("保存对话记录最终失败", e);
-                    // 尝试保存简化版本
-                    try {
-                        String shortAnswer = answer.length() > 5000 ?
-                                answer.substring(0, 5000) + "..." : answer;
-                        saveConversation(Long.parseLong(userId), sessionId, question, shortAnswer, fileId);
-                        log.info("已保存简化版对话记录");
-                    } catch (Exception ex) {
-                        log.error("连简化版也保存失败", ex);
-                    }
-                } else {
-                    try {
-                        TimeUnit.SECONDS.sleep(retryCount); // 指数退避
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
-                }
-            }
-        }
+        // getters and setters
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+        public String getQuestion() { return question; }
+        public void setQuestion(String question) { this.question = question; }
+        public String getAnswer() { return answer; }
+        public void setAnswer(String answer) { this.answer = answer; }
     }
 
     /**
