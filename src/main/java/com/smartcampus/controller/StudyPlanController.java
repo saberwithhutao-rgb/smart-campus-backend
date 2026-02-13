@@ -20,22 +20,21 @@ import java.util.List;
 public class StudyPlanController {
 
     private final StudyPlanService studyPlanService;
-    private final JwtUtil jwtUtil;  // ✅ 注入JwtUtil
+    private final JwtUtil jwtUtil;
 
     /**
      * 1. 获取学习计划列表
-     * GET /api/study/plans
      */
     @GetMapping("/plans")
     public ApiResponse<PageResult<StudyPlan>> getPlans(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,  // ✅ 自己拿header
+            @RequestHeader("Authorization") String authHeader,  // ✅ required = true，必须带token！
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String planType,
             @RequestParam(required = false) String subject) {
 
-        // ✅ 从Token解析userId
+        // ✅ 从Token解析userId，没有默认值！
         Integer userId = extractUserIdFromToken(authHeader);
 
         PageResult<StudyPlan> result = studyPlanService.getPlans(
@@ -46,11 +45,10 @@ public class StudyPlanController {
 
     /**
      * 2. 创建学习计划
-     * POST /api/study/plans
      */
     @PostMapping("/plans")
     public ApiResponse<StudyPlan> createPlan(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @Valid @RequestBody CreatePlanRequest request) {
 
         Integer userId = extractUserIdFromToken(authHeader);
@@ -61,11 +59,10 @@ public class StudyPlanController {
 
     /**
      * 3. 更新学习计划
-     * PUT /api/study/plans/{id}
      */
     @PutMapping("/plans/{id}")
     public ApiResponse<StudyPlan> updatePlan(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id,
             @Valid @RequestBody UpdatePlanRequest request) {
 
@@ -77,11 +74,10 @@ public class StudyPlanController {
 
     /**
      * 4. 删除学习计划
-     * DELETE /api/study/plans/{id}
      */
     @DeleteMapping("/plans/{id}")
     public ApiResponse<Void> deletePlan(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id) {
 
         Integer userId = extractUserIdFromToken(authHeader);
@@ -92,11 +88,10 @@ public class StudyPlanController {
 
     /**
      * 5. 更新进度
-     * PATCH /api/study/plans/{id}/progress
      */
     @PatchMapping("/plans/{id}/progress")
     public ApiResponse<StudyPlan> updateProgress(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id,
             @Valid @RequestBody UpdateProgressRequest request) {
 
@@ -111,11 +106,10 @@ public class StudyPlanController {
 
     /**
      * 6. 获取单个学习计划
-     * GET /api/study/plans/{id}
      */
     @GetMapping("/plans/{id}")
     public ApiResponse<StudyPlan> getPlanById(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id) {
 
         Integer userId = extractUserIdFromToken(authHeader);
@@ -126,11 +120,10 @@ public class StudyPlanController {
 
     /**
      * 7. 切换完成状态
-     * POST /api/study/plans/{id}/toggle
      */
     @PostMapping("/plans/{id}/toggle")
     public ApiResponse<StudyPlan> toggleComplete(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id) {
 
         Integer userId = extractUserIdFromToken(authHeader);
@@ -141,11 +134,10 @@ public class StudyPlanController {
 
     /**
      * 8. 获取学习日程
-     * GET /api/study/schedule
      */
     @GetMapping("/schedule")
     public ApiResponse<List<StudyPlan>> getSchedule(
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader("Authorization") String authHeader,
             @RequestParam(required = false) Integer planId,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate startDate,
             @RequestParam(required = false) @DateTimeFormat(pattern = "yyyy-MM-dd") LocalDate endDate) {
@@ -160,35 +152,31 @@ public class StudyPlanController {
 
     /**
      * 从Authorization头中提取并解析userId
-     * 完全模仿你的 /user/profile 接口的写法
+     * 没有默认值！token无效直接抛异常！
      */
     private Integer extractUserIdFromToken(String authHeader) {
+        // 1. 验证token是否存在
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new IllegalArgumentException("未提供Token或Token格式错误");
+        }
+
+        // 2. 提取token
+        String token = authHeader.substring(7);
+
         try {
-            // 1. 如果没有token，返回默认用户ID（方便测试）
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                log.warn("未提供Token，使用默认用户ID: 3");
-                return 3;  // 你的测试用户ID
-            }
-
-            // 2. 提取token
-            String token = authHeader.substring(7);
-
-            // 3. 用你的JwtUtil解析token获取userId
+            // 3. 解析token获取userId
             Long userIdLong = jwtUtil.getUserIdFromToken(token);
 
             if (userIdLong == null) {
-                log.warn("Token解析失败，使用默认用户ID: 3");
-                return 3;
+                throw new RuntimeException("Token中不存在userId");
             }
 
             log.info("Token解析成功，userId: {}", userIdLong);
             return userIdLong.intValue();
 
         } catch (Exception e) {
-            // 4. 任何异常都返回默认用户ID，保证接口可用
-            log.error("Token解析异常: {}, 使用默认用户ID: 3", e.getMessage());
-            e.printStackTrace();
-            return 3;
+            log.error("Token解析失败: {}", e.getMessage());
+            throw new RuntimeException("无效的Token", e);
         }
     }
 }
