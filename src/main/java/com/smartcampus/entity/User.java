@@ -2,10 +2,10 @@ package com.smartcampus.entity;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.vladmihalcea.hibernate.type.json.JsonType;
 import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.Type;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -68,7 +68,11 @@ public class User {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime lastLoginAt;
 
-    @Type(JsonType.class)
+    /**
+     * 用户元数据 - JSONB类型
+     * 使用 Hibernate 6.3+ 原生注解
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata", columnDefinition = "jsonb")
     private Map<String, Object> metadata = new HashMap<>();
 
@@ -84,11 +88,11 @@ public class User {
 
     // 辅助方法，用于前端显示
     public String getGenderText() {
-        switch (gender) {
-            case 1: return "男";
-            case 2: return "女";
-            default: return "未知";
-        }
+        return switch (gender) {
+            case 1 -> "男";
+            case 2 -> "女";
+            default -> "未知";
+        };
     }
 
     public String getStatusText() {

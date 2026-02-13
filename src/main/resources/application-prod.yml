@@ -34,6 +34,7 @@ spring:
         order_updates: true
         batch_versioned_data: true
     open-in-view: false  # 生产环境关闭
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
 
   # 邮件配置
   mail:
