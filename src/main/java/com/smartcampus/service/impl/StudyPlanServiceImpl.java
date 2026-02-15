@@ -1,4 +1,4 @@
-package com.smartcampus.service;
+package com.smartcampus.service.impl;
 
 import com.smartcampus.dao.StudyPlanDao;
 import com.smartcampus.dto.CreatePlanRequest;
@@ -40,7 +40,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
                 LocalDate.parse(date, DATE_FORMATTER);
             }
         } catch (DateTimeParseException e) {
-            throw new BusinessException(fieldName + "格式必须是 yyyy-MM-dd");
+            throw new BusinessException(400, fieldName + "格式必须是 yyyy-MM-dd");
         }
     }
 
@@ -49,7 +49,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
      */
     private void validateStartDateNotBeforeToday(LocalDate startDate) {
         if (startDate != null && startDate.isBefore(LocalDate.now())) {
-            throw new BusinessException("开始日期不能早于今天");
+            throw new BusinessException(400, "开始日期不能早于今天");
         }
     }
 
@@ -58,13 +58,17 @@ public class StudyPlanServiceImpl implements StudyPlanService {
      */
     private void validateEndDateNotBeforeStartDate(LocalDate startDate, LocalDate endDate) {
         if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
-            throw new BusinessException("结束日期不能早于开始日期");
+            throw new BusinessException(400, "结束日期不能早于开始日期");
         }
     }
 
     @Override
     public PageResult<StudyPlan> getPlans(Integer userId, Integer page, Integer size,
                                           String status, String planType, String subject) {
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
+
         Pageable pageable = PageRequest.of(
                 page - 1,
                 size,
@@ -98,68 +102,85 @@ public class StudyPlanServiceImpl implements StudyPlanService {
     @Override
     @Transactional
     public StudyPlan createPlan(Integer userId, CreatePlanRequest request) {
-        System.out.println("🔥 createPlan - userId: " + userId);
+        log.info("创建学习计划 - userId: {}", userId);
 
         if (userId == null) {
-            throw new BusinessException("用户ID不能为空");
+            throw new BusinessException(401, "用户未登录");
         }
 
-        // ✅ 1. 校验日期格式
+        // 1. 校验必填字段
+        if (request.getTitle() == null || request.getTitle().trim().isEmpty()) {
+            throw new BusinessException(400, "计划名称不能为空");
+        }
+        if (request.getPlanType() == null) {
+            throw new BusinessException(400, "计划类型不能为空");
+        }
+
+        // 2. 校验日期格式
+        if (request.getStartDate() == null) {
+            throw new BusinessException(400, "开始日期不能为空");
+        }
         validateDateFormat(request.getStartDate().toString(), "开始日期");
         if (request.getEndDate() != null) {
             validateDateFormat(request.getEndDate().toString(), "结束日期");
         }
 
-        // ✅ 2. 开始日期不能为空，不能早于今天
-        if (request.getStartDate() == null) {
-            throw new BusinessException("开始日期不能为空");
-        }
+        // 3. 开始日期不能早于今天
         validateStartDateNotBeforeToday(request.getStartDate());
 
-        // ✅ 3. 结束日期不能早于开始日期
+        // 4. 结束日期不能早于开始日期
         validateEndDateNotBeforeStartDate(request.getStartDate(), request.getEndDate());
 
         StudyPlan plan = new StudyPlan();
         plan.setUserId(userId);
-        plan.setTitle(request.getTitle());
+        plan.setTitle(request.getTitle().trim());
         plan.setDescription(request.getDescription());
         plan.setPlanType(request.getPlanType());
         plan.setSubject(request.getSubject());
-        plan.setDifficulty(request.getDifficulty());
+        plan.setDifficulty(request.getDifficulty() != null ? request.getDifficulty() : "medium");
         plan.setStartDate(request.getStartDate());
         plan.setEndDate(request.getEndDate());
         plan.setProgressPercent(request.getProgressPercent() != null ? request.getProgressPercent() : 0);
         plan.setStatus("active");
 
-        return studyPlanDao.save(plan);
+        StudyPlan saved = studyPlanDao.save(plan);
+        log.info("学习计划创建成功 - id: {}", saved.getId());
+        return saved;
     }
 
     @Override
     @Transactional
     public StudyPlan updatePlan(Integer userId, Integer planId, UpdatePlanRequest request) {
-        StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException("计划不存在或无权限修改"));
+        log.info("更新学习计划 - userId: {}, planId: {}", userId, planId);
 
-        // ✅ 4. 计划已完成不能修改任何日期，不能降低进度
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
+
+        StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
+                .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限修改"));
+
+        // 已完成计划不能修改
         if ("completed".equals(plan.getStatus())) {
             // 检查是否尝试修改任何字段
             if (request.getTitle() != null || request.getDescription() != null ||
                     request.getPlanType() != null || request.getSubject() != null ||
                     request.getDifficulty() != null || request.getStartDate() != null ||
-                    request.getEndDate() != null || request.getProgressPercent() != null) {
-                throw new BusinessException("已完成计划不能修改任何信息");
+                    request.getEndDate() != null || request.getProgressPercent() != null ||
+                    request.getStatus() != null) {
+                throw new BusinessException(403, "已完成计划不能修改任何信息");
             }
             return plan;
         }
 
-        // ✅ 5. 计划进行中不能修改开始日期
+        // 进行中的计划不能修改开始日期
         if ("active".equals(plan.getStatus()) && request.getStartDate() != null) {
             if (!request.getStartDate().equals(plan.getStartDate())) {
-                throw new BusinessException("进行中的计划不能修改开始日期");
+                throw new BusinessException(403, "进行中的计划不能修改开始日期");
             }
         }
 
-        // ✅ 6. 校验日期格式
+        // 校验日期格式
         if (request.getStartDate() != null) {
             validateDateFormat(request.getStartDate().toString(), "开始日期");
         }
@@ -167,19 +188,19 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             validateDateFormat(request.getEndDate().toString(), "结束日期");
         }
 
-        // ✅ 7. 如果修改开始日期，不能早于今天
+        // 如果修改开始日期，不能早于今天
         if (request.getStartDate() != null) {
             validateStartDateNotBeforeToday(request.getStartDate());
         }
 
-        // ✅ 8. 结束日期不能早于开始日期（使用最新的日期）
+        // 结束日期不能早于开始日期
         LocalDate startDate = request.getStartDate() != null ? request.getStartDate() : plan.getStartDate();
         LocalDate endDate = request.getEndDate() != null ? request.getEndDate() : plan.getEndDate();
         validateEndDateNotBeforeStartDate(startDate, endDate);
 
         // 更新字段
         if (StringUtils.hasText(request.getTitle())) {
-            plan.setTitle(request.getTitle());
+            plan.setTitle(request.getTitle().trim());
         }
         if (request.getDescription() != null) {
             plan.setDescription(request.getDescription());
@@ -194,14 +215,15 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             plan.setDifficulty(request.getDifficulty());
         }
         if (request.getProgressPercent() != null) {
-            // ✅ 不能降低进度
+            // 不能降低进度
             if (request.getProgressPercent() < plan.getProgressPercent()) {
-                throw new BusinessException("不能降低学习进度");
+                throw new BusinessException(400, "不能降低学习进度");
             }
             plan.setProgressPercent(request.getProgressPercent());
             // 进度100%自动完成
             if (request.getProgressPercent() >= 100) {
                 plan.setStatus("completed");
+                log.info("计划进度100%，自动标记为完成 - planId: {}", planId);
             }
         }
         if (request.getStartDate() != null) {
@@ -210,71 +232,117 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         if (request.getEndDate() != null) {
             plan.setEndDate(request.getEndDate());
         }
+        if (StringUtils.hasText(request.getStatus())) {
+            // 不能手动修改为已完成，只能通过进度触发
+            if ("completed".equals(request.getStatus())) {
+                throw new BusinessException(400, "不能手动标记为已完成，请将进度设置为100%");
+            }
+            plan.setStatus(request.getStatus());
+        }
 
-        return studyPlanDao.save(plan);
+        StudyPlan updated = studyPlanDao.save(plan);
+        log.info("学习计划更新成功 - id: {}", updated.getId());
+        return updated;
     }
 
     @Override
     @Transactional
     public void deletePlan(Integer userId, Integer planId) {
-        StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException("计划不存在或无权限删除"));
+        log.info("删除学习计划 - userId: {}, planId: {}", userId, planId);
 
-        // ✅ 计划已完成不能删除
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
+
+        StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
+                .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限删除"));
+
+        // 已完成计划不能删除
         if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException("已完成计划不能删除");
+            throw new BusinessException(403, "已完成计划不能删除");
         }
 
         studyPlanDao.delete(plan);
+        log.info("学习计划删除成功 - id: {}", planId);
     }
 
     @Override
     @Transactional
     public StudyPlan updateProgress(Integer userId, Integer planId, UpdateProgressRequest request) {
+        log.info("更新学习进度 - userId: {}, planId: {}, progress: {}", userId, planId, request.getProgressPercent());
+
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
+
+        if (request.getProgressPercent() == null) {
+            throw new BusinessException(400, "进度不能为空");
+        }
+
         StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException("计划不存在或无权限修改"));
+                .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限修改"));
+
+        // 已完成计划不能修改进度
+        if ("completed".equals(plan.getStatus())) {
+            throw new BusinessException(403, "已完成计划不能修改进度");
+        }
 
         Short progress = request.getProgressPercent();
 
-        // ✅ 不能降低进度
-        if (progress < plan.getProgressPercent()) {
-            throw new BusinessException("不能降低学习进度");
+        // 进度范围校验
+        if (progress < 0 || progress > 100) {
+            throw new BusinessException(400, "进度必须在0-100之间");
         }
 
-        // ✅ 已完成计划不能修改进度
-        if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException("已完成计划不能修改进度");
+        // 不能降低进度
+        if (progress < plan.getProgressPercent()) {
+            throw new BusinessException(400, "不能降低学习进度");
         }
 
         int updated = studyPlanDao.updateProgress(planId, userId, progress);
         if (updated == 0) {
-            throw new BusinessException("计划不存在或无权限修改");
+            throw new BusinessException(500, "更新进度失败");
         }
 
-        return studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException("计划不存在"));
+        StudyPlan updatedPlan = studyPlanDao.findByIdAndUserId(planId, userId)
+                .orElseThrow(() -> new BusinessException(404, "计划不存在"));
+
+        log.info("学习进度更新成功 - id: {}, newProgress: {}", planId, updatedPlan.getProgressPercent());
+        return updatedPlan;
     }
 
     @Override
     public StudyPlan getPlanById(Integer userId, Integer planId) {
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
         return studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException("计划不存在"));
+                .orElseThrow(() -> new BusinessException(404, "计划不存在"));
     }
 
     @Override
     public List<StudyPlan> getSchedule(Integer userId, Integer planId,
                                        LocalDate startDate, LocalDate endDate) {
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
         return studyPlanDao.findSchedule(userId, planId, startDate, endDate);
     }
 
     @Override
     @Transactional
     public StudyPlan toggleComplete(Integer userId, Integer planId) {
+        log.info("切换计划完成状态 - userId: {}, planId: {}", userId, planId);
+
+        if (userId == null) {
+            throw new BusinessException(401, "用户未登录");
+        }
+
         StudyPlan plan = getPlanById(userId, planId);
 
-        // ✅ 已完成不能重新激活
+        // 已完成不能重新激活
         if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException("已完成计划不能重新激活");
+            throw new BusinessException(403, "已完成计划不能重新激活，请创建新计划");
         }
 
         Short newProgress = (short) (plan.getProgressPercent() >= 100 ? 0 : 100);
