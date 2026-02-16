@@ -28,14 +28,20 @@ public class StudyTaskService {
      */
     @Transactional
     public StudyTask createFirstReviewTask(StudyPlan plan) {
-        log.info("为计划 {} 创建第一次复习任务", plan.getId());
+
+        LocalDate taskDate;
+        if (plan.getUpdatedAt() != null) {
+            taskDate = plan.getUpdatedAt().toLocalDate().plusDays(1);
+        }else{
+            taskDate = LocalDate.now().plusDays(1);
+        }
 
         StudyTask task = new StudyTask();
         task.setPlanId(plan.getId());
         task.setUserId(plan.getUserId());
         task.setTitle(plan.getTitle());
         task.setDescription(plan.getDescription());
-        task.setTaskDate(LocalDate.now().plusDays(1)); // 默认明天复习
+        task.setTaskDate(taskDate);
         task.setScheduledTime(null);
         task.setDurationMinutes(30);
         task.setStatus("pending");
@@ -59,10 +65,16 @@ public class StudyTaskService {
         }
 
         int nextStage = currentStage + 1;
-        LocalDate nextDate = LocalDate.now().plusDays(REVIEW_INTERVALS[nextStage - 1]);
 
-        log.info("为计划 {} 创建第{}次复习任务，日期: {}",
-                currentTask.getPlanId(), nextStage, nextDate);
+        LocalDate nextDate;
+        if (currentTask.getCompletedAt() != null) {
+            nextDate = currentTask.getCompletedAt()
+                    .toLocalDate()
+                    .plusDays(REVIEW_INTERVALS[nextStage - 1]);
+        } else {
+            // 如果没有完成时间（理论上不会发生），用当前时间
+            nextDate = LocalDate.now().plusDays(REVIEW_INTERVALS[nextStage - 1]);
+        }
 
         StudyTask nextTask = new StudyTask();
         nextTask.setPlanId(currentTask.getPlanId());

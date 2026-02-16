@@ -33,7 +33,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
     private final StudyPlanDao studyPlanDao;
     private final StudyTaskService studyTaskService;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-
     /**
      * 校验日期格式
      */
@@ -227,9 +226,9 @@ public class StudyPlanServiceImpl implements StudyPlanService {
                 plan.setStatus("completed");
                 log.info("计划进度100%，自动标记为完成 - planId: {}", planId);
 
-                // 异步生成复习任务
+                // ✅ 只生成第一次复习任务！
                 CompletableFuture.runAsync(() -> {
-                    studyTaskService.generateReviewTasks(plan);
+                    studyTaskService.createFirstReviewTask(plan);
                 });
             }
         }
@@ -312,12 +311,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         StudyPlan updatedPlan = studyPlanDao.findByIdAndUserId(planId, userId)
                 .orElseThrow(() -> new BusinessException(404, "计划不存在"));
 
-        // ✅ 如果进度达到100%，生成复习任务
-        if (progress >= 100) {
-            CompletableFuture.runAsync(() -> {
-                studyTaskService.generateReviewTasks(updatedPlan);
-            });
-        }
 
         log.info("学习进度更新成功 - id: {}, newProgress: {}", planId, updatedPlan.getProgressPercent());
         return updatedPlan;
@@ -358,13 +351,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         }
 
         Short newProgress = (short) (plan.getProgressPercent() >= 100 ? 0 : 100);
-
-        // ✅ 如果变为完成状态，只生成第一次复习任务！
-        if (newProgress >= 100) {
-            CompletableFuture.runAsync(() -> {
-                studyTaskService.createFirstReviewTask(plan);  // 只创建一次！
-            });
-        }
 
         UpdateProgressRequest request = new UpdateProgressRequest();
         request.setProgressPercent(newProgress);
