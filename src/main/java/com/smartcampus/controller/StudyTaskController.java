@@ -20,14 +20,40 @@ public class StudyTaskController {
     private final JwtUtil jwtUtil;
 
     /**
-     * 获取复习任务列表
+     * 获取待复习任务列表
      */
-    @GetMapping("/review")
-    public ApiResponse<List<StudyTask>> getReviewTasks(
+    @GetMapping("/pending")
+    public ApiResponse<List<StudyTask>> getPendingTasks(
             @RequestHeader("Authorization") String authHeader) {
 
         Integer userId = extractUserId(authHeader);
-        List<StudyTask> tasks = studyTaskService.getUserReviewTasks(userId);
+        List<StudyTask> tasks = studyTaskService.getPendingTasks(userId);
+
+        return ApiResponse.success(tasks);
+    }
+
+    /**
+     * 获取今天的复习任务
+     */
+    @GetMapping("/today")
+    public ApiResponse<List<StudyTask>> getTodayTasks(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Integer userId = extractUserId(authHeader);
+        List<StudyTask> tasks = studyTaskService.getTodayTasks(userId);
+
+        return ApiResponse.success(tasks);
+    }
+
+    /**
+     * 获取逾期任务
+     */
+    @GetMapping("/overdue")
+    public ApiResponse<List<StudyTask>> getOverdueTasks(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Integer userId = extractUserId(authHeader);
+        List<StudyTask> tasks = studyTaskService.getOverdueTasks(userId);
 
         return ApiResponse.success(tasks);
     }

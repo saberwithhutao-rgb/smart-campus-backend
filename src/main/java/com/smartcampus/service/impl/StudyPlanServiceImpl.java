@@ -359,10 +359,10 @@ public class StudyPlanServiceImpl implements StudyPlanService {
 
         Short newProgress = (short) (plan.getProgressPercent() >= 100 ? 0 : 100);
 
-        // ✅ 如果变为完成状态，生成复习任务
+        // ✅ 如果变为完成状态，只生成第一次复习任务！
         if (newProgress >= 100) {
             CompletableFuture.runAsync(() -> {
-                studyTaskService.generateReviewTasks(plan);
+                studyTaskService.createFirstReviewTask(plan);  // 只创建一次！
             });
         }
 

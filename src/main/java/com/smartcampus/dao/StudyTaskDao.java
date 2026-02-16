@@ -14,22 +14,26 @@ import java.util.List;
 @Repository
 public interface StudyTaskDao extends JpaRepository<StudyTask, Integer> {
 
-    // 获取用户的复习任务（按日期排序）
+    // 获取用户的待复习任务（按日期排序）
     List<StudyTask> findByUserIdAndStatusOrderByTaskDateAsc(Integer userId, String status);
 
-    // 获取特定日期的任务
-    List<StudyTask> findByUserIdAndTaskDate(Integer userId, LocalDate taskDate);
+    // 获取特定日期的待复习任务
+    List<StudyTask> findByUserIdAndTaskDateAndStatus(Integer userId, LocalDate taskDate, String status);
 
-    // 获取未完成的任务
-    List<StudyTask> findByUserIdAndTaskDateLessThanEqualAndStatus(
-            Integer userId, LocalDate date, String status);
+    // 获取逾期任务
+    List<StudyTask> findByUserIdAndTaskDateLessThanAndStatus(Integer userId, LocalDate taskDate, String status);
+
+    // 获取计划的所有任务
+    List<StudyTask> findByPlanId(Integer planId);
+
+    // 删除计划的所有任务
+    @Modifying
+    @Transactional
+    void deleteByPlanId(Integer planId);
 
     // 更新任务状态
     @Modifying
     @Transactional
     @Query("UPDATE StudyTask t SET t.status = :status, t.completedAt = CURRENT_TIMESTAMP WHERE t.id = :id")
     int updateStatus(@Param("id") Integer id, @Param("status") String status);
-
-    // 删除计划相关的所有任务
-    void deleteByPlanId(Integer planId);
 }

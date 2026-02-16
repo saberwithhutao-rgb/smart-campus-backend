@@ -11,8 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -22,60 +20,63 @@ public class StudyTaskService {
 
     private final StudyTaskDao studyTaskDao;
 
+    // 复习间隔（天数）
+    private static final int[] REVIEW_INTERVALS = {1, 3, 7, 15, 30};
+
     /**
-     * 生成复习任务（当计划完成时）
-     * 使用艾宾浩斯遗忘曲线：1天、3天、7天、15天、30天
+     * 创建第一次复习任务（当计划完成时）
      */
     @Transactional
-    public List<StudyTask> generateReviewTasks(StudyPlan plan) {
-        List<StudyTask> tasks = new ArrayList<>();
-        Integer userId = plan.getUserId();
-        Integer planId = plan.getId();
-        LocalDate startDate = plan.getEndDate() != null ? plan.getEndDate() : LocalDate.now();
+    public StudyTask createFirstReviewTask(StudyPlan plan) {
+        log.info("为计划 {} 创建第一次复习任务", plan.getId());
 
-        // 艾宾浩斯遗忘曲线复习间隔
-        int[] intervals = {1, 3, 7, 15, 30};
+        StudyTask task = new StudyTask();
+        task.setPlanId(plan.getId());
+        task.setUserId(plan.getUserId());
+        task.setTitle(plan.getTitle());
+        task.setDescription(plan.getDescription());
+        task.setTaskDate(LocalDate.now().plusDays(1)); // 默认明天复习
+        task.setScheduledTime(null);
+        task.setDurationMinutes(30);
+        task.setStatus("pending");
+        task.setReviewStage((short) 1); // 第一次复习
+        task.setCreatedAt(LocalDateTime.now());
 
-        for (int i = 0; i < intervals.length; i++) {
-            StudyTask task = new StudyTask();
-            task.setPlanId(planId);
-            task.setUserId(userId);
-            task.setTitle(plan.getTitle() + " - 第" + (i + 1) + "次复习");
-            task.setDescription(plan.getDescription());
-            task.setTaskDate(startDate.plusDays(intervals[i]));
-            task.setScheduledTime(LocalTime.of(20, 0)); // 默认晚上8点
-            task.setDurationMinutes(30);
-            task.setStatus("pending");
-            task.setReviewStage((short) (i + 1));
-            task.setCreatedAt(LocalDateTime.now());
+        return studyTaskDao.save(task);
+    }
 
-            tasks.add(studyTaskDao.save(task));
+    /**
+     * 创建下一次复习任务（当完成当前任务时）
+     */
+    @Transactional
+    public StudyTask createNextReviewTask(StudyTask currentTask) {
+        int currentStage = currentTask.getReviewStage();
+
+        // 如果已经是第5次复习，不再创建新任务
+        if (currentStage >= 5) {
+            log.info("计划 {} 已完成所有5次复习", currentTask.getPlanId());
+            return null;
         }
 
-        log.info("为计划 {} 生成了 {} 个复习任务", planId, tasks.size());
-        return tasks;
-    }
+        int nextStage = currentStage + 1;
+        LocalDate nextDate = LocalDate.now().plusDays(REVIEW_INTERVALS[nextStage - 1]);
 
-    /**
-     * 获取用户的复习任务
-     */
-    public List<StudyTask> getUserReviewTasks(Integer userId) {
-        return studyTaskDao.findByUserIdAndStatusOrderByTaskDateAsc(userId, "pending");
-    }
+        log.info("为计划 {} 创建第{}次复习任务，日期: {}",
+                currentTask.getPlanId(), nextStage, nextDate);
 
-    /**
-     * 获取今天的复习任务
-     */
-    public List<StudyTask> getTodayTasks(Integer userId) {
-        return studyTaskDao.findByUserIdAndTaskDate(userId, LocalDate.now());
-    }
+        StudyTask nextTask = new StudyTask();
+        nextTask.setPlanId(currentTask.getPlanId());
+        nextTask.setUserId(currentTask.getUserId());
+        nextTask.setTitle(currentTask.getTitle());
+        nextTask.setDescription(currentTask.getDescription());
+        nextTask.setTaskDate(nextDate);
+        nextTask.setScheduledTime(null);
+        nextTask.setDurationMinutes(30);
+        nextTask.setStatus("pending");
+        nextTask.setReviewStage((short) nextStage);
+        nextTask.setCreatedAt(LocalDateTime.now());
 
-    /**
-     * 获取逾期未完成的任务
-     */
-    public List<StudyTask> getOverdueTasks(Integer userId) {
-        return studyTaskDao.findByUserIdAndTaskDateLessThanEqualAndStatus(
-                userId, LocalDate.now(), "pending");
+        return studyTaskDao.save(nextTask);
     }
 
     /**
@@ -84,20 +85,46 @@ public class StudyTaskService {
     @Transactional
     public StudyTask completeTask(Integer userId, Integer taskId) {
         StudyTask task = studyTaskDao.findById(taskId)
-                .orElseThrow(() -> new BusinessException("任务不存在"));
+                .orElseThrow(() -> new BusinessException(404, "任务不存在"));
 
+        // 验证权限
         if (!task.getUserId().equals(userId)) {
-            throw new BusinessException("无权操作此任务");
+            throw new BusinessException(403, "无权操作此任务");
         }
 
-        if ("completed".equals(task.getStatus())) {
-            throw new BusinessException("任务已完成");
-        }
-
+        // 标记为完成
         task.setStatus("completed");
         task.setCompletedAt(LocalDateTime.now());
+        studyTaskDao.save(task);
 
-        return studyTaskDao.save(task);
+        // 创建下一次复习任务
+        createNextReviewTask(task);
+
+        log.info("任务 {} 已完成，并创建了下一次复习", taskId);
+        return task;
+    }
+
+    /**
+     * 获取用户的待复习任务
+     */
+    public List<StudyTask> getPendingTasks(Integer userId) {
+        return studyTaskDao.findByUserIdAndStatusOrderByTaskDateAsc(userId, "pending");
+    }
+
+    /**
+     * 获取今天的复习任务
+     */
+    public List<StudyTask> getTodayTasks(Integer userId) {
+        return studyTaskDao.findByUserIdAndTaskDateAndStatus(
+                userId, LocalDate.now(), "pending");
+    }
+
+    /**
+     * 获取逾期任务
+     */
+    public List<StudyTask> getOverdueTasks(Integer userId) {
+        return studyTaskDao.findByUserIdAndTaskDateLessThanAndStatus(
+                userId, LocalDate.now(), "pending");
     }
 
     /**
