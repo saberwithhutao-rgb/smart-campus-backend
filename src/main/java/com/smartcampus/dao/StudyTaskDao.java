@@ -1,0 +1,35 @@
+package com.smartcampus.dao;
+
+import com.smartcampus.entity.StudyTask;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDate;
+import java.util.List;
+
+@Repository
+public interface StudyTaskDao extends JpaRepository<StudyTask, Integer> {
+
+    // 获取用户的复习任务（按日期排序）
+    List<StudyTask> findByUserIdAndStatusOrderByTaskDateAsc(Integer userId, String status);
+
+    // 获取特定日期的任务
+    List<StudyTask> findByUserIdAndTaskDate(Integer userId, LocalDate taskDate);
+
+    // 获取未完成的任务
+    List<StudyTask> findByUserIdAndTaskDateLessThanEqualAndStatus(
+            Integer userId, LocalDate date, String status);
+
+    // 更新任务状态
+    @Modifying
+    @Transactional
+    @Query("UPDATE StudyTask t SET t.status = :status, t.completedAt = CURRENT_TIMESTAMP WHERE t.id = :id")
+    int updateStatus(@Param("id") Integer id, @Param("status") String status);
+
+    // 删除计划相关的所有任务
+    void deleteByPlanId(Integer planId);
+}

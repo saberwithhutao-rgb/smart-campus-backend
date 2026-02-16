@@ -8,6 +8,7 @@ import com.smartcampus.dto.PageResult;
 import com.smartcampus.entity.StudyPlan;
 import com.smartcampus.exception.BusinessException;
 import com.smartcampus.service.StudyPlanService;
+import com.smartcampus.service.StudyTaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -22,6 +23,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Service
@@ -29,6 +31,7 @@ import java.util.List;
 public class StudyPlanServiceImpl implements StudyPlanService {
 
     private final StudyPlanDao studyPlanDao;
+    private final StudyTaskService studyTaskService;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     /**
@@ -162,7 +165,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
 
         // 已完成计划不能修改
         if ("completed".equals(plan.getStatus())) {
-            // 检查是否尝试修改任何字段
             if (request.getTitle() != null || request.getDescription() != null ||
                     request.getPlanType() != null || request.getSubject() != null ||
                     request.getDifficulty() != null || request.getStartDate() != null ||
@@ -220,10 +222,15 @@ public class StudyPlanServiceImpl implements StudyPlanService {
                 throw new BusinessException(400, "不能降低学习进度");
             }
             plan.setProgressPercent(request.getProgressPercent());
-            // 进度100%自动完成
+
             if (request.getProgressPercent() >= 100) {
                 plan.setStatus("completed");
                 log.info("计划进度100%，自动标记为完成 - planId: {}", planId);
+
+                // 异步生成复习任务
+                CompletableFuture.runAsync(() -> {
+                    studyTaskService.generateReviewTasks(plan);
+                });
             }
         }
         if (request.getStartDate() != null) {
@@ -240,9 +247,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             plan.setStatus(request.getStatus());
         }
 
-        StudyPlan updated = studyPlanDao.save(plan);
-        log.info("学习计划更新成功 - id: {}", updated.getId());
-        return updated;
+        return studyPlanDao.save(plan);
     }
 
     @Override
@@ -346,6 +351,14 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         }
 
         Short newProgress = (short) (plan.getProgressPercent() >= 100 ? 0 : 100);
+
+        // ✅ 如果变为完成状态，生成复习任务
+        if (newProgress >= 100) {
+            CompletableFuture.runAsync(() -> {
+                studyTaskService.generateReviewTasks(plan);
+            });
+        }
+
         UpdateProgressRequest request = new UpdateProgressRequest();
         request.setProgressPercent(newProgress);
 
