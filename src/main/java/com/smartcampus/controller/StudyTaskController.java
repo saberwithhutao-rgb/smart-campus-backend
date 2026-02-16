@@ -33,32 +33,6 @@ public class StudyTaskController {
     }
 
     /**
-     * 获取今天的任务
-     */
-    @GetMapping("/today")
-    public ApiResponse<List<StudyTask>> getTodayTasks(
-            @RequestHeader("Authorization") String authHeader) {
-
-        Integer userId = extractUserId(authHeader);
-        List<StudyTask> tasks = studyTaskService.getTodayTasks(userId);
-
-        return ApiResponse.success(tasks);
-    }
-
-    /**
-     * 获取逾期任务
-     */
-    @GetMapping("/overdue")
-    public ApiResponse<List<StudyTask>> getOverdueTasks(
-            @RequestHeader("Authorization") String authHeader) {
-
-        Integer userId = extractUserId(authHeader);
-        List<StudyTask> tasks = studyTaskService.getOverdueTasks(userId);
-
-        return ApiResponse.success(tasks);
-    }
-
-    /**
      * 完成任务
      */
     @PostMapping("/{id}/complete")

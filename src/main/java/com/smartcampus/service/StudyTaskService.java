@@ -33,7 +33,7 @@ public class StudyTaskService {
         Integer planId = plan.getId();
         LocalDate startDate = plan.getEndDate() != null ? plan.getEndDate() : LocalDate.now();
 
-        // 定义复习间隔（天数）
+        // 艾宾浩斯遗忘曲线复习间隔
         int[] intervals = {1, 3, 7, 15, 30};
 
         for (int i = 0; i < intervals.length; i++) {
