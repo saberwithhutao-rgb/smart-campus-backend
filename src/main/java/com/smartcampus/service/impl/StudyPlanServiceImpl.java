@@ -312,6 +312,13 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         StudyPlan updatedPlan = studyPlanDao.findByIdAndUserId(planId, userId)
                 .orElseThrow(() -> new BusinessException(404, "计划不存在"));
 
+        // ✅ 如果进度达到100%，生成复习任务
+        if (progress >= 100) {
+            CompletableFuture.runAsync(() -> {
+                studyTaskService.generateReviewTasks(updatedPlan);
+            });
+        }
+
         log.info("学习进度更新成功 - id: {}, newProgress: {}", planId, updatedPlan.getProgressPercent());
         return updatedPlan;
     }
