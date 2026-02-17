@@ -337,6 +337,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
     @Override
     @Transactional
     public StudyPlan toggleComplete(Integer userId, Integer planId) {
+        log.info("========== toggleComplete 开始 ==========");
         log.info("切换计划完成状态 - userId: {}, planId: {}", userId, planId);
 
         if (userId == null) {
@@ -344,17 +345,35 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         }
 
         StudyPlan plan = getPlanById(userId, planId);
+        log.info("当前计划状态 - id: {}, status: {}", plan.getId(), plan.getStatus());
 
-        // 已完成不能重新激活
-        if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException(403, "已完成计划不能重新激活，请创建新计划");
+        // ✅ 判断是否从未完成变为完成
+        boolean isBecomingCompleted = !"completed".equals(plan.getStatus());
+
+        // ✅ 更新状态（只改状态，不改进度）
+        if (isBecomingCompleted) {
+            plan.setStatus("completed");
+            log.info("计划从未完成变为完成，生成第一次复习任务");
+
+            // 异步生成复习任务
+            CompletableFuture.runAsync(() -> {
+                try {
+                    studyTaskService.createFirstReviewTask(plan);
+                    log.info("复习任务生成成功");
+                } catch (Exception e) {
+                    log.error("复习任务生成失败", e);
+                }
+            });
+        } else {
+            plan.setStatus("active");
+            log.info("计划从完成变为未完成，不生成复习任务");
         }
 
-        Short newProgress = (short) (plan.getProgressPercent() >= 100 ? 0 : 100);
+        // ✅ 保存更新（只改状态）
+        StudyPlan updatedPlan = studyPlanDao.save(plan);
+        log.info("计划状态更新成功 - id: {}, newStatus: {}", updatedPlan.getId(), updatedPlan.getStatus());
+        log.info("========== toggleComplete 结束 ==========");
 
-        UpdateProgressRequest request = new UpdateProgressRequest();
-        request.setProgressPercent(newProgress);
-
-        return updateProgress(userId, planId, request);
+        return updatedPlan;
     }
 }
