@@ -46,9 +46,7 @@ public interface StudyPlanDao extends JpaRepository<StudyPlan, Integer> {
             "s.status = CASE WHEN :progress >= 100 THEN 'completed' ELSE s.status END, " +
             "s.updatedAt = CURRENT_TIMESTAMP " +
             "WHERE s.id = :id AND s.userId = :userId")
-    int updateProgress(@Param("id") Integer id,
-                       @Param("userId") Integer userId,
-                       @Param("progress") Short progress);
+
 
     // 删除计划（同时验证用户权限）
     int deleteByIdAndUserId(Integer id, Integer userId);

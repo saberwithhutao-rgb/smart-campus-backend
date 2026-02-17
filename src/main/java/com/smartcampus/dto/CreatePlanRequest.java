@@ -13,11 +13,9 @@ public class CreatePlanRequest {
 
     private String description;
 
-    @NotBlank(message = "计划类型不能为空")
-    @Pattern(regexp = "review|learning|project", message = "计划类型必须是 review/learning/project")
     private String planType;
 
-    @Size(max = 100, message = "学科名称不能超过100字符")
+    @NotBlank(message = "学科不能为空")
     private String subject;
 
     @Pattern(regexp = "easy|medium|hard", message = "难易程度必须是 easy/medium/hard")
@@ -28,8 +26,4 @@ public class CreatePlanRequest {
 
     @Future(message = "结束日期必须是未来日期")
     private LocalDate endDate;
-
-    @Min(value = 0, message = "进度不能小于0")
-    @Max(value = 100, message = "进度不能大于100")
-    private Short progressPercent = 0;
 }

@@ -87,24 +87,6 @@ public class StudyPlanController {
     }
 
     /**
-     * 5. 更新进度
-     */
-    @PatchMapping("/plans/{id}/progress")
-    public ApiResponse<StudyPlan> updateProgress(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable Integer id,
-            @Valid @RequestBody UpdateProgressRequest request) {
-
-        Integer userId = extractUserIdFromToken(authHeader);
-        StudyPlan plan = studyPlanService.updateProgress(userId, id, request);
-
-        String message = request.getProgressPercent() >= 100 ?
-                "恭喜！计划已完成" : "进度更新成功";
-
-        return ApiResponse.success(message, plan);
-    }
-
-    /**
      * 6. 获取单个学习计划
      */
     @GetMapping("/plans/{id}")

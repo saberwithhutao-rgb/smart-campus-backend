@@ -3,7 +3,6 @@ package com.smartcampus.service.impl;
 import com.smartcampus.dao.StudyPlanDao;
 import com.smartcampus.dto.CreatePlanRequest;
 import com.smartcampus.dto.UpdatePlanRequest;
-import com.smartcampus.dto.UpdateProgressRequest;
 import com.smartcampus.dto.PageResult;
 import com.smartcampus.entity.StudyPlan;
 import com.smartcampus.exception.BusinessException;
@@ -142,7 +141,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         plan.setDifficulty(request.getDifficulty() != null ? request.getDifficulty() : "medium");
         plan.setStartDate(request.getStartDate());
         plan.setEndDate(request.getEndDate());
-        plan.setProgressPercent(request.getProgressPercent() != null ? request.getProgressPercent() : 0);
         plan.setStatus("active");
 
         StudyPlan saved = studyPlanDao.save(plan);
@@ -167,7 +165,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             if (request.getTitle() != null || request.getDescription() != null ||
                     request.getPlanType() != null || request.getSubject() != null ||
                     request.getDifficulty() != null || request.getStartDate() != null ||
-                    request.getEndDate() != null || request.getProgressPercent() != null ||
+                    request.getEndDate() != null ||
                     request.getStatus() != null) {
                 throw new BusinessException(403, "已完成计划不能修改任何信息");
             }
@@ -215,23 +213,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         if (StringUtils.hasText(request.getDifficulty())) {
             plan.setDifficulty(request.getDifficulty());
         }
-        if (request.getProgressPercent() != null) {
-            // 不能降低进度
-            if (request.getProgressPercent() < plan.getProgressPercent()) {
-                throw new BusinessException(400, "不能降低学习进度");
-            }
-            plan.setProgressPercent(request.getProgressPercent());
 
-            if (request.getProgressPercent() >= 100) {
-                plan.setStatus("completed");
-                log.info("计划进度100%，自动标记为完成 - planId: {}", planId);
-
-                // ✅ 只生成第一次复习任务！
-                CompletableFuture.runAsync(() -> {
-                    studyTaskService.createFirstReviewTask(plan);
-                });
-            }
-        }
         if (request.getStartDate() != null) {
             plan.setStartDate(request.getStartDate());
         }
@@ -239,10 +221,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             plan.setEndDate(request.getEndDate());
         }
         if (StringUtils.hasText(request.getStatus())) {
-            // 不能手动修改为已完成，只能通过进度触发
-            if ("completed".equals(request.getStatus())) {
-                throw new BusinessException(400, "不能手动标记为已完成，请将进度设置为100%");
-            }
             plan.setStatus(request.getStatus());
         }
 
@@ -268,52 +246,6 @@ public class StudyPlanServiceImpl implements StudyPlanService {
 
         studyPlanDao.delete(plan);
         log.info("学习计划删除成功 - id: {}", planId);
-    }
-
-    @Override
-    @Transactional
-    public StudyPlan updateProgress(Integer userId, Integer planId, UpdateProgressRequest request) {
-        log.info("更新学习进度 - userId: {}, planId: {}, progress: {}", userId, planId, request.getProgressPercent());
-
-        if (userId == null) {
-            throw new BusinessException(401, "用户未登录");
-        }
-
-        if (request.getProgressPercent() == null) {
-            throw new BusinessException(400, "进度不能为空");
-        }
-
-        StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限修改"));
-
-        // 已完成计划不能修改进度
-        if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException(403, "已完成计划不能修改进度");
-        }
-
-        Short progress = request.getProgressPercent();
-
-        // 进度范围校验
-        if (progress < 0 || progress > 100) {
-            throw new BusinessException(400, "进度必须在0-100之间");
-        }
-
-        // 不能降低进度
-        if (progress < plan.getProgressPercent()) {
-            throw new BusinessException(400, "不能降低学习进度");
-        }
-
-        int updated = studyPlanDao.updateProgress(planId, userId, progress);
-        if (updated == 0) {
-            throw new BusinessException(500, "更新进度失败");
-        }
-
-        StudyPlan updatedPlan = studyPlanDao.findByIdAndUserId(planId, userId)
-                .orElseThrow(() -> new BusinessException(404, "计划不存在"));
-
-
-        log.info("学习进度更新成功 - id: {}, newProgress: {}", planId, updatedPlan.getProgressPercent());
-        return updatedPlan;
     }
 
     @Override

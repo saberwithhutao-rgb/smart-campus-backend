@@ -34,27 +34,19 @@ public class StudyPlan {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @NotBlank(message = "计划类型不能为空")
-    @Pattern(regexp = "review|learning|project", message = "计划类型必须是 review/learning/project")
-    @Column(name = "plan_type", nullable = false, length = 30)
+    @Column(name = "plan_type", length = 30)
     private String planType;
 
+    @NotBlank(message = "学科不能为空")
     @Size(max = 100, message = "学科名称不能超过100字符")
     @Column(name = "subject", length = 100)
     private String subject;
 
-    @Pattern(regexp = "easy|medium|hard", message = "难易程度必须是 easy/medium/hard")
     @Column(name = "difficulty", length = 20)
     private String difficulty = "medium";
 
-    @Pattern(regexp = "active|completed|paused", message = "状态必须是 active/completed/paused")
     @Column(name = "status", length = 20)
     private String status = "active";
-
-    @Min(value = 0, message = "进度不能小于0")
-    @Max(value = 100, message = "进度不能大于100")
-    @Column(name = "progress_percent")
-    private Short progressPercent = 0;
 
     @NotNull(message = "开始日期不能为空")
     @Column(name = "start_date", nullable = false)

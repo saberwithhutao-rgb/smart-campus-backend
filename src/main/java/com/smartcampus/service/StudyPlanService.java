@@ -2,7 +2,6 @@ package com.smartcampus.service;
 
 import com.smartcampus.dto.CreatePlanRequest;
 import com.smartcampus.dto.UpdatePlanRequest;
-import com.smartcampus.dto.UpdateProgressRequest;
 import com.smartcampus.dto.PageResult;
 import com.smartcampus.entity.StudyPlan;
 import org.springframework.data.domain.Pageable;
@@ -24,9 +23,6 @@ public interface StudyPlanService {
 
     // 删除计划
     void deletePlan(Integer userId, Integer planId);
-
-    // 更新进度
-    StudyPlan updateProgress(Integer userId, Integer planId, UpdateProgressRequest request);
 
     // 获取计划详情
     StudyPlan getPlanById(Integer userId, Integer planId);
