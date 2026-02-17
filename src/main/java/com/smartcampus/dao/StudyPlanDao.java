@@ -39,15 +39,6 @@ public interface StudyPlanDao extends JpaRepository<StudyPlan, Integer> {
     // 查询单个计划（同时验证用户权限）
     Optional<StudyPlan> findByIdAndUserId(Integer id, Integer userId);
 
-    // 更新进度
-    @Modifying
-    @Transactional
-    @Query("UPDATE StudyPlan s SET s.progressPercent = :progress, " +
-            "s.status = CASE WHEN :progress >= 100 THEN 'completed' ELSE s.status END, " +
-            "s.updatedAt = CURRENT_TIMESTAMP " +
-            "WHERE s.id = :id AND s.userId = :userId")
-
-
     // 删除计划（同时验证用户权限）
     int deleteByIdAndUserId(Integer id, Integer userId);
 
