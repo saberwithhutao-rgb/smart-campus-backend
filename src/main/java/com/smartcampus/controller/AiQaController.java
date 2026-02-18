@@ -101,7 +101,11 @@ public class AiQaController {
             @RequestParam(value = "stream", defaultValue = "false") String streamParam,
             @RequestHeader(value = "Authorization") String authHeader) {
 
-        log.info("AI聊天接口被调用，问题: {}, stream: {}", question, streamParam);
+        log.info("🚀 AI聊天接口被调用 ==========");
+        log.info("📝 问题: {}", question);
+        log.info("📎 是否有文件: {}", file != null && !file.isEmpty());
+        log.info("🔑 sessionId: {}", sessionIdParam);
+        log.info("🌊 stream参数: {}", streamParam);
 
         try {
             Long userId = validateAndExtractUserId(authHeader);
@@ -114,17 +118,14 @@ public class AiQaController {
                     ? sessionIdParam
                     : generateSessionId();
 
-            boolean stream = "true".equalsIgnoreCase(streamParam) || "1".equals(streamParam);
+            boolean stream = "true".equalsIgnoreCase(streamParam);
 
+            // ✅ 无论是否有文件，都支持流式
             if (stream) {
-                // 流式不支持文件上传
-                if (file != null && !file.isEmpty()) {
-                    return ResponseEntity.badRequest()
-                            .body(Map.of("code", 400, "message", "流式输出暂不支持文件上传"));
-                }
-                // ✅ 直接调用SseEmitter版本
-                return chatStream(question, sessionId, authHeader);
+                // 流式模式 - 即使有文件也返回 SseEmitter
+                return handleStreamingChat(question, file, sessionId, userId, authHeader);
             } else {
+                // 非流式模式
                 return handleNormalChat(question, file, userId, sessionId);
             }
 
@@ -134,6 +135,69 @@ public class AiQaController {
                     .body(Map.of("code", 500, "message", "服务器内部错误"));
         }
     }
+
+    /**
+     * 处理流式聊天（支持文件上传）
+     */
+    private SseEmitter handleStreamingChat(String question, MultipartFile file,
+                                           String sessionId, Long userId,
+                                           String authHeader) {
+
+        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+
+        // 异步处理
+        executorService.submit(() -> {
+            try {
+                String enhancedQuestion = question;
+
+                // 如果有文件，先处理文件
+                if (file != null && !file.isEmpty()) {
+                    // 1. 保存文件
+                    LearningFile learningFile = saveLearningFile(file, userId.toString());
+
+                    // 2. 提取文件内容
+                    String fileContent = fileProcessingService.extractTextFromFile(file);
+
+                    // 3. 增强问题（把文件内容作为上下文）
+                    enhancedQuestion = question + "\n\n参考文件内容：\n" +
+                            fileContent.substring(0, Math.min(2000, fileContent.length()));
+
+                    // 4. 记录文件ID
+                    // 可以在后续保存对话时使用
+                }
+
+                // 调用通义千问流式API
+                qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
+                        .doOnNext(chunk -> {
+                            try {
+                                emitter.send(chunk);
+                            } catch (IOException e) {
+                                log.error("发送SSE数据失败", e);
+                                throw new RuntimeException(e);
+                            }
+                        })
+                        .doOnComplete(() -> {
+                            // 流式完成后保存对话记录
+                            // 注意：这里需要累积完整的回答，但通义千问的流式返回的是完整chunk
+                            // 实际使用时可能需要累积完整文本
+                            log.info("流式完成，会话ID: {}", sessionId);
+                            emitter.complete();
+                        })
+                        .doOnError(error -> {
+                            log.error("流式错误", error);
+                            emitter.completeWithError(error);
+                        })
+                        .subscribe();
+
+            } catch (Exception e) {
+                log.error("处理流式聊天失败", e);
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
 
     /**
      * ✅ 真正的流式问答接口 - 使用 SseEmitter 实现真正的流式输出
