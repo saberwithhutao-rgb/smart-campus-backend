@@ -19,12 +19,9 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-import reactor.core.publisher.Flux;
 
 import java.io.IOException;
-import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -83,17 +80,12 @@ public class AiQaController {
         }
     }
 
-    @GetMapping("/chat")
-    public ResponseEntity<Void> handleChatPage() {
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create("/"))
-                .build();
-    }
-
     /**
-     * 统一智能问答接口 - 根据stream参数选择模式
+     * 统一智能问答接口 - 支持流式/非流式，支持文件上传
      */
-    @PostMapping(value = "/chat", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/chat",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
     public Object chatWithAi(
             @RequestParam("question") String question,
             @RequestParam(value = "file", required = false) MultipartFile file,
@@ -120,13 +112,16 @@ public class AiQaController {
 
             boolean stream = "true".equalsIgnoreCase(streamParam);
 
-            // ✅ 无论是否有文件，都支持流式
             if (stream) {
-                // 流式模式 - 即使有文件也返回 SseEmitter
-                return handleStreamingChat(question, file, sessionId, userId, authHeader);
+                // 流式模式 - 支持文件上传
+                return handleStreamingChat(question, file, sessionId, userId);
             } else {
-                // 非流式模式
-                return handleNormalChat(question, file, userId, sessionId);
+                // 非流式模式 - 不支持文件上传（文件上传必须用流式）
+                if (file != null && !file.isEmpty()) {
+                    return ResponseEntity.badRequest()
+                            .body(Map.of("code", 400, "message", "文件上传必须使用流式模式（stream=true）"));
+                }
+                return handleNormalChat(question, userId, sessionId);
             }
 
         } catch (Exception e) {
@@ -139,37 +134,44 @@ public class AiQaController {
     /**
      * 处理流式聊天（支持文件上传）
      */
+    /**
+     * 处理流式聊天（支持文件上传）
+     */
     private SseEmitter handleStreamingChat(String question, MultipartFile file,
-                                           String sessionId, Long userId,
-                                           String authHeader) {
+                                           String sessionId, Long userId) {
 
-        SseEmitter emitter = new SseEmitter(120000L); // 2分钟超时
+        SseEmitter emitter = new SseEmitter(120000L);
 
-        // 异步处理
         executorService.submit(() -> {
             try {
                 String enhancedQuestion = question;
+                Long fileId = null;
 
                 // 如果有文件，先处理文件
                 if (file != null && !file.isEmpty()) {
-                    // 1. 保存文件
                     LearningFile learningFile = saveLearningFile(file, userId.toString());
+                    fileId = learningFile.getId();
 
-                    // 2. 提取文件内容
                     String fileContent = fileProcessingService.extractTextFromFile(file);
-
-                    // 3. 增强问题（把文件内容作为上下文）
                     enhancedQuestion = question + "\n\n参考文件内容：\n" +
                             fileContent.substring(0, Math.min(2000, fileContent.length()));
-
-                    // 4. 记录文件ID
-                    // 可以在后续保存对话时使用
                 }
+
+                // 创建 final 副本，用于 lambda 表达式
+                final String finalQuestion = question;
+                final Long finalFileId = fileId;
+                final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
+                final String finalSessionId = sessionId;
+                final Long finalUserId = userId;
+
+                StringBuilder fullAnswer = new StringBuilder();
 
                 // 调用通义千问流式API
                 qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
                         .doOnNext(chunk -> {
                             try {
+                                // 累积完整回答
+                                fullAnswer.append(chunk);
                                 emitter.send(chunk);
                             } catch (IOException e) {
                                 log.error("发送SSE数据失败", e);
@@ -178,9 +180,9 @@ public class AiQaController {
                         })
                         .doOnComplete(() -> {
                             // 流式完成后保存对话记录
-                            // 注意：这里需要累积完整的回答，但通义千问的流式返回的是完整chunk
-                            // 实际使用时可能需要累积完整文本
-                            log.info("流式完成，会话ID: {}", sessionId);
+                            saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
+                                    fullAnswer.toString(), finalFileId, isFirstMessage);
+                            log.info("流式完成，会话ID: {}", finalSessionId);
                             emitter.complete();
                         })
                         .doOnError(error -> {
@@ -198,88 +200,10 @@ public class AiQaController {
         return emitter;
     }
 
-
     /**
-     * ✅ 真正的流式问答接口 - 使用 SseEmitter 实现真正的流式输出
-     * POST /ai/chat/stream
+     * 处理非流式聊天（纯文本）
      */
-    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chatStream(
-            @RequestParam("question") String question,
-            @RequestParam(value = "sessionId", required = false) String sessionId,
-            @RequestHeader("Authorization") String authHeader) {
-
-        // 验证用户
-        Long userId = validateAndExtractUserId(authHeader);
-        if (userId == null) {
-            SseEmitter emitter = new SseEmitter();
-            emitter.completeWithError(new ResponseStatusException(HttpStatus.UNAUTHORIZED, "未授权"));
-            return emitter;
-        }
-
-        String finalSessionId = (sessionId != null && !sessionId.isEmpty())
-                ? sessionId
-                : generateSessionId();
-
-        log.info("✅ SSE流式开始，用户: {}, 会话: {}", userId, finalSessionId);
-
-        // 创建SseEmitter，设置超时时间2分钟
-        SseEmitter emitter = new SseEmitter(120000L);
-
-        // 设置完成回调
-        emitter.onCompletion(() -> {
-            log.info("SSE连接完成，会话ID: {}", finalSessionId);
-        });
-
-        // 设置超时回调
-        emitter.onTimeout(() -> {
-            log.warn("SSE连接超时，会话ID: {}", finalSessionId);
-            emitter.complete();
-        });
-
-        // 设置错误回调
-        emitter.onError((ex) -> {
-            log.error("SSE连接错误，会话ID: {}", finalSessionId, ex);
-            emitter.completeWithError(ex);
-        });
-
-        // 🟢🟢🟢 订阅通义千问流式响应，实时转发 🟢🟢🟢
-        qianWenService.askQuestionStream(question, Collections.emptyList(), "qwen-max")
-                .doOnNext(chunk -> {
-                    try {
-                        // 通义千问返回的chunk已经是完整的SSE格式: data: {...}\n\n
-                        // 直接发送给前端，不做任何包装
-                        emitter.send(chunk);
-                        log.debug("发送chunk: {}", chunk.substring(0, Math.min(50, chunk.length())));
-                    } catch (IOException e) {
-                        log.error("发送SSE数据失败", e);
-                        throw new RuntimeException("发送失败", e);
-                    }
-                })
-                .doOnComplete(() -> {
-                    log.info("通义千问流式完成，会话ID: {}", finalSessionId);
-                    emitter.complete();
-                })
-                .doOnError(error -> {
-                    log.error("通义千问流式错误", error);
-                    emitter.completeWithError(error);
-                })
-                .subscribe(); // 必须订阅
-
-        return emitter;
-    }
-
-    /**
-     * 处理普通聊天响应（非流式）
-     */
-    private ResponseEntity<?> handleNormalChat(String question, MultipartFile file,
-                                               Long userId, String sessionId) {
-        // 有文件上传
-        if (file != null && !file.isEmpty()) {
-            return handleFileUpload(question, file, userId.toString(), sessionId);
-        }
-
-        // 纯文本问题
+    private ResponseEntity<?> handleNormalChat(String question, Long userId, String sessionId) {
         log.info("非流式调用通义千问: {}", question);
 
         try {
@@ -291,7 +215,6 @@ public class AiQaController {
                 aiAnswer = "AI服务返回空响应，请稍后重试。";
             }
 
-            // 判断是否是会话的第一条消息
             boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
 
             // 异步保存对话记录
