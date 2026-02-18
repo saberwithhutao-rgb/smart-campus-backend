@@ -134,13 +134,32 @@ public class AiQaController {
     /**
      * 处理流式聊天（支持文件上传）
      */
-    /**
-     * 处理流式聊天（支持文件上传）
-     */
     private SseEmitter handleStreamingChat(String question, MultipartFile file,
                                            String sessionId, Long userId) {
 
         SseEmitter emitter = new SseEmitter(120000L);
+
+        // 设置超时回调
+        emitter.onTimeout(() -> {
+            log.warn("SSE连接超时，会话ID: {}", sessionId);
+            emitter.complete();
+        });
+
+        // 设置错误回调
+        emitter.onError((ex) -> {
+            log.error("SSE连接错误，会话ID: {}", sessionId, ex);
+            try {
+                // 尝试发送错误消息
+                Map<String, Object> errorMsg = Map.of(
+                        "error", "处理失败",
+                        "message", ex.getMessage()
+                );
+                emitter.send(errorMsg);
+            } catch (IOException e) {
+                log.error("发送错误消息失败", e);
+            }
+            emitter.complete();
+        });
 
         executorService.submit(() -> {
             try {
@@ -158,11 +177,11 @@ public class AiQaController {
                 }
 
                 // 创建 final 副本，用于 lambda 表达式
-                final String finalQuestion = question;
                 final Long finalFileId = fileId;
                 final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
                 final String finalSessionId = sessionId;
                 final Long finalUserId = userId;
+                final String finalQuestion = question;
 
                 StringBuilder fullAnswer = new StringBuilder();
 
@@ -179,21 +198,45 @@ public class AiQaController {
                             }
                         })
                         .doOnComplete(() -> {
-                            // 流式完成后保存对话记录
-                            saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
-                                    fullAnswer.toString(), finalFileId, isFirstMessage);
-                            log.info("流式完成，会话ID: {}", finalSessionId);
-                            emitter.complete();
+                            try {
+                                // 流式完成后保存对话记录
+                                saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
+                                        fullAnswer.toString(), finalFileId, isFirstMessage);
+                                log.info("流式完成，会话ID: {}, 回答长度: {}", finalSessionId, fullAnswer.length());
+                                emitter.complete();
+                            } catch (Exception e) {
+                                log.error("保存对话记录失败", e);
+                                emitter.complete();
+                            }
                         })
                         .doOnError(error -> {
-                            log.error("流式错误", error);
-                            emitter.completeWithError(error);
+                            log.error("流式处理错误: {}", error.getMessage());
+                            try {
+                                // 发送错误消息给前端
+                                Map<String, Object> errorResponse = Map.of(
+                                        "error", "AI处理失败",
+                                        "message", error.getMessage()
+                                );
+                                emitter.send(errorResponse);
+                            } catch (IOException e) {
+                                log.error("发送错误消息失败", e);
+                            }
+                            emitter.complete();
                         })
                         .subscribe();
 
             } catch (Exception e) {
                 log.error("处理流式聊天失败", e);
-                emitter.completeWithError(e);
+                try {
+                    Map<String, Object> errorResponse = Map.of(
+                            "error", "处理失败",
+                            "message", e.getMessage()
+                    );
+                    emitter.send(errorResponse);
+                } catch (IOException ex) {
+                    log.error("发送错误消息失败", ex);
+                }
+                emitter.complete();
             }
         });
 
