@@ -227,10 +227,13 @@ public class AiQaController {
                 aiAnswer = "AI服务返回空响应，请稍后重试。";
             }
 
+            // 判断是否是会话的第一条消息
+            boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
+
             // 异步保存对话记录
             String finalAnswer = aiAnswer;
             executorService.submit(() -> {
-                saveConversationWithRetry(userId.toString(), sessionId, question, finalAnswer, null);
+                saveConversationToDb(userId, sessionId, question, finalAnswer, null, isFirstMessage);
             });
 
             return ResponseEntity.ok(Map.of(
@@ -347,15 +350,19 @@ public class AiQaController {
                                 "qwen-max")
                         .block(Duration.ofSeconds(90));
 
-                // ✅ 5. 保存对话记录 - 修改这里
-                saveConversationToDb(Long.parseLong(userId), sessionId, question, aiAnswer, learningFile.getId());
+                // 5. 判断是否是会话的第一条消息
+                Long userIdLong = Long.parseLong(userId);
+                boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userIdLong, sessionId) == 0;
 
-                // 6. 更新文件摘要
+                // 6. 保存对话记录
+                saveConversationToDb(userIdLong, sessionId, question, aiAnswer, learningFile.getId(), isFirstMessage);
+
+                // 7. 更新文件摘要
                 if (aiAnswer != null) {
                     updateFileSummary(learningFile.getId(), aiAnswer);
                 }
 
-                // 7. 更新任务状态
+                // 8. 更新任务状态
                 taskStatus.put(taskId, "completed:" + aiAnswer);
 
             } catch (Exception e) {
@@ -452,7 +459,317 @@ public class AiQaController {
     }
 
     /**
-     * 获取历史对话
+     * ================== 新增：历史对话相关接口 ==================
+     */
+
+    /**
+     * 获取用户的会话列表（每个会话只返回一条记录）
+     */
+    @GetMapping("/chat/sessions")
+    public ResponseEntity<?> getConversationSessions(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            // 获取每个会话的第一条记录（用于标题）和最新记录（用于预览）
+            List<Object[]> results = aiConversationRepository.findSessionSummaries(userId);
+
+            List<Map<String, Object>> sessions = new ArrayList<>();
+
+            for (Object[] row : results) {
+                Map<String, Object> session = new HashMap<>();
+                session.put("sessionId", row[0]);                     // session_id
+                session.put("title", row[1] != null ? row[1] : "新对话");  // title
+                session.put("preview", row[2]);                       // 最新的一条问题作为预览
+                session.put("createTime", row[3]);                    // 第一条记录的创建时间
+                session.put("messageCount", ((Number) row[4]).intValue()); // 消息数量
+
+                // 如果有文件关联，查询文件信息
+                if (row[5] != null) {
+                    Long fileId = ((Number) row[5]).longValue();
+                    Optional<LearningFile> fileOpt = learningFileRepository.findById(fileId);
+                    fileOpt.ifPresent(file -> {
+                        session.put("fileId", fileId);
+                        session.put("fileName", file.getOriginalName());
+                        session.put("fileType", file.getFileType());
+                    });
+                }
+
+                sessions.add(session);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "success");
+            response.put("data", sessions);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("获取会话列表失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "获取会话列表失败"));
+        }
+    }
+
+    /**
+     * 获取某个会话的完整对话记录
+     */
+    @GetMapping("/chat/history/{sessionId}")
+    public ResponseEntity<?> getSessionHistory(
+            @PathVariable String sessionId,
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            // 验证该会话属于当前用户
+            if (!aiConversationRepository.existsBySessionIdAndUserId(sessionId, userId)) {
+                return ResponseEntity.status(403)
+                        .body(Map.of("code", 403, "message", "无权访问该会话"));
+            }
+
+            List<AiConversation> conversations = aiConversationRepository
+                    .findBySessionIdOrderByCreatedAtAsc(sessionId);
+
+            List<Map<String, Object>> history = new ArrayList<>();
+
+            for (AiConversation conv : conversations) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("question", conv.getQuestion());
+                item.put("answer", conv.getAnswer());
+                item.put("createTime", conv.getCreatedAt());
+                item.put("questionType", conv.getQuestionType() != null ? conv.getQuestionType() : "text");
+                item.put("rating", conv.getRating() != null ? conv.getRating() : 0);
+                item.put("tokenUsage", conv.getTokenUsage());
+
+                // 如果有文件关联，查询文件信息
+                if (conv.getFileId() != null) {
+                    Optional<LearningFile> fileOpt = learningFileRepository.findById(conv.getFileId());
+                    fileOpt.ifPresent(file -> {
+                        item.put("fileId", file.getId());
+                        item.put("fileName", file.getOriginalName());
+                        item.put("fileType", file.getFileType());
+                    });
+                }
+
+                history.add(item);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "success");
+            response.put("data", history);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("获取会话历史失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "获取会话历史失败"));
+        }
+    }
+
+    /**
+     * 删除整个会话
+     */
+    @DeleteMapping("/chat/session/{sessionId}")
+    public ResponseEntity<?> deleteSession(
+            @PathVariable String sessionId,
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            int deletedCount = aiConversationRepository.deleteBySessionIdAndUserId(sessionId, userId);
+
+            if (deletedCount == 0) {
+                return ResponseEntity.status(404)
+                        .body(Map.of("code", 404, "message", "会话不存在或无权删除"));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "删除成功",
+                    "data", Map.of("deletedCount", deletedCount)
+            ));
+
+        } catch (Exception e) {
+            log.error("删除会话失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "删除会话失败"));
+        }
+    }
+
+    /**
+     * 重命名会话（更新会话的第一条记录的title）
+     */
+    @PutMapping("/chat/session/{sessionId}")
+    public ResponseEntity<?> renameSession(
+            @PathVariable String sessionId,
+            @RequestBody Map<String, String> body,
+            @RequestHeader("Authorization") String authHeader) {
+
+        String newTitle = body.get("title");
+        if (newTitle == null || newTitle.trim().isEmpty()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", 400, "message", "标题不能为空"));
+        }
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            // 获取该会话的第一条记录（作为会话标题）
+            List<AiConversation> conversations = aiConversationRepository
+                    .findBySessionIdOrderByCreatedAtAsc(sessionId);
+
+            if (conversations.isEmpty()) {
+                return ResponseEntity.status(404)
+                        .body(Map.of("code", 404, "message", "会话不存在"));
+            }
+
+            // 验证所有权
+            if (!conversations.get(0).getUserId().equals(userId)) {
+                return ResponseEntity.status(403)
+                        .body(Map.of("code", 403, "message", "无权修改该会话"));
+            }
+
+            // 更新第一条记录的title
+            AiConversation firstConv = conversations.get(0);
+            firstConv.setTitle(newTitle.trim());
+            aiConversationRepository.save(firstConv);
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "重命名成功"
+            ));
+
+        } catch (Exception e) {
+            log.error("重命名会话失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "重命名会话失败"));
+        }
+    }
+
+    /**
+     * 评价回答
+     */
+    @PostMapping("/chat/rate/{conversationId}")
+    public ResponseEntity<?> rateConversation(
+            @PathVariable Long conversationId,
+            @RequestBody Map<String, Integer> body,
+            @RequestHeader("Authorization") String authHeader) {
+
+        Integer rating = body.get("rating");
+        if (rating == null || (rating != -1 && rating != 0 && rating != 1)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("code", 400, "message", "评分必须为-1、0或1"));
+        }
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            Optional<AiConversation> convOpt = aiConversationRepository.findById(conversationId);
+            if (convOpt.isEmpty()) {
+                return ResponseEntity.status(404)
+                        .body(Map.of("code", 404, "message", "对话记录不存在"));
+            }
+
+            AiConversation conv = convOpt.get();
+            // 验证所有权
+            if (!conv.getUserId().equals(userId)) {
+                return ResponseEntity.status(403)
+                        .body(Map.of("code", 403, "message", "无权评价该对话"));
+            }
+
+            conv.setRating(rating.shortValue());
+            aiConversationRepository.save(conv);
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "评价成功"
+            ));
+
+        } catch (Exception e) {
+            log.error("评价失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "评价失败"));
+        }
+    }
+
+    /**
+     * 获取用户的对话统计信息
+     */
+    @GetMapping("/chat/stats")
+    public ResponseEntity<?> getChatStats(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            // 总对话次数
+            long totalCount = aiConversationRepository.countByUserId(userId);
+
+            // 总token消耗
+            Integer totalToken = aiConversationRepository.sumTokenUsageByUserId(userId);
+
+            // 会话数量
+            long sessionCount = aiConversationRepository.countDistinctSessionsByUserId(userId);
+
+            // 评分统计
+            Object[] ratingStats = aiConversationRepository.getRatingStatsByUserId(userId);
+
+            Map<String, Object> stats = new HashMap<>();
+            stats.put("totalConversations", totalCount);
+            stats.put("totalTokens", totalToken != null ? totalToken : 0);
+            stats.put("totalSessions", sessionCount);
+
+            if (ratingStats != null && ratingStats.length >= 3) {
+                stats.put("positiveRatings", ((Number) ratingStats[0]).intValue());  // 满意
+                stats.put("negativeRatings", ((Number) ratingStats[1]).intValue()); // 不满意
+                stats.put("unrated", ((Number) ratingStats[2]).intValue());         // 未评价
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "success",
+                    "data", stats
+            ));
+
+        } catch (Exception e) {
+            log.error("获取统计信息失败", e);
+            return ResponseEntity.status(500)
+                    .body(Map.of("code", 500, "message", "获取统计信息失败"));
+        }
+    }
+
+    /**
+     * 获取历史对话（原有接口，保持兼容）
      */
     @GetMapping("/chat/history")
     public ResponseEntity<?> getChatHistory(
@@ -626,7 +943,7 @@ public class AiQaController {
     }
 
     /**
-     * 优化后的保存对话记录方法（带重试）
+     * 优化后的保存对话记录方法（带重试）- 保留但改为调用新方法
      */
     private void saveConversationWithRetry(String userId, String sessionId,
                                            String question, String answer, Long fileId) {
@@ -635,7 +952,9 @@ public class AiQaController {
 
         while (retryCount < maxRetries) {
             try {
-                saveConversationToDb(Long.parseLong(userId), sessionId, question, answer, fileId);
+                Long userIdLong = Long.parseLong(userId);
+                boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userIdLong, sessionId) == 0;
+                saveConversationToDb(userIdLong, sessionId, question, answer, fileId, isFirstMessage);
                 log.info("对话记录保存成功，长度: {}", answer.length());
                 return;
             } catch (Exception e) {
@@ -647,9 +966,11 @@ public class AiQaController {
                     log.error("保存对话记录最终失败", e);
                     // 尝试保存简化版本
                     try {
+                        Long userIdLong = Long.parseLong(userId);
                         String shortAnswer = answer.length() > 5000 ?
                                 answer.substring(0, 5000) + "..." : answer;
-                        saveConversationToDb(Long.parseLong(userId), sessionId, question, shortAnswer, fileId);
+                        boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userIdLong, sessionId) == 0;
+                        saveConversationToDb(userIdLong, sessionId, question, shortAnswer, fileId, isFirstMessage);
                         log.info("已保存简化版对话记录");
                     } catch (Exception ex) {
                         log.error("连简化版也保存失败", ex);
@@ -666,9 +987,11 @@ public class AiQaController {
         }
     }
 
-    // 将数据库保存方法改名
+    /**
+     * 保存对话记录到数据库 - 改进版，支持判断是否第一条消息
+     */
     private void saveConversationToDb(Long userId, String sessionId,
-                                      String question, String answer, Long fileId) {
+                                      String question, String answer, Long fileId, boolean isFirstMessage) {
         AiConversation conversation = new AiConversation();
         conversation.setUserId(userId);
         conversation.setSessionId(sessionId);
@@ -676,31 +999,23 @@ public class AiQaController {
         conversation.setAnswer(answer);
         conversation.setFileId(fileId);
         conversation.setCreatedAt(LocalDateTime.now());
+        conversation.setQuestionType("text");
 
-        // 生成简短标题
-        String title = question.length() > 30 ?
-                question.substring(0, 30) + "..." : question;
-        conversation.setTitle(title);
+        conversation.setRating((short) 0);  // 或者 conversation.setRating(Short.valueOf("0"));
+
+        // 如果是会话的第一条消息，生成标题（取问题前30个字符）
+        if (isFirstMessage) {
+            String title = question.length() > 30 ?
+                    question.substring(0, 30) + "..." : question;
+            conversation.setTitle(title);
+        }
+        // 如果不是第一条，title保持null
+
+        // 估算token使用量（简单估算：中文字符数 * 1.5 + 英文字符数 * 1.3）
+        int estimatedTokens = (int)(question.length() * 1.5 + answer.length() * 1.3);
+        conversation.setTokenUsage(estimatedTokens);
 
         aiConversationRepository.save(conversation);
-    }
-
-
-    /**
-     * 保存对话请求体
-     */
-    class SaveConversationRequest {
-        private String sessionId;
-        private String question;
-        private String answer;
-
-        // getters and setters
-        public String getSessionId() { return sessionId; }
-        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
-        public String getQuestion() { return question; }
-        public void setQuestion(String question) { this.question = question; }
-        public String getAnswer() { return answer; }
-        public void setAnswer(String answer) { this.answer = answer; }
     }
 
     /**
