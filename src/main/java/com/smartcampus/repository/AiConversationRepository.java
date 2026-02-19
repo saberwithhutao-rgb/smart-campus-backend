@@ -96,10 +96,10 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
             "    (SELECT a3.question FROM ai_conversations a3 WHERE a3.session_id = a.session_id ORDER BY a3.created_at DESC LIMIT 1) as preview, " +
             "    MIN(a.created_at) as create_time, " +
             "    COUNT(a.id) as message_count, " +
-            "    (SELECT a4.file_id FROM ai_conversations a4 WHERE a4.session_id = a.session_id AND a4.file_id IS NOT NULL LIMIT 1) as file_id " +
+            "    MAX(a.file_id) as file_id " +
             "FROM ai_conversations a " +
             "WHERE a.user_id = ?1 " +
             "GROUP BY a.session_id " +
             "ORDER BY create_time DESC", nativeQuery = true)
-    List<Object[]> findSessionSummaries(@Param("userId") Long userId);
+    List<Object[]> findSessionSummaries(Long userId);
 }

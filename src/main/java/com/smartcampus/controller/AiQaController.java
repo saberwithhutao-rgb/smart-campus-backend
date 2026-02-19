@@ -495,38 +495,59 @@ public class AiQaController {
     public ResponseEntity<?> getConversationSessions(
             @RequestHeader("Authorization") String authHeader) {
 
+        log.info("🔥 getConversationSessions 开始执行");
+
         Long userId = validateAndExtractUserId(authHeader);
+        log.info("userId: {}", userId);
+
         if (userId == null) {
+            log.warn("userId 为 null");
             return ResponseEntity.status(401)
                     .body(Map.of("code", 401, "message", "未授权或Token无效"));
         }
 
         try {
-            // 获取每个会话的第一条记录（用于标题）和最新记录（用于预览）
+            log.info("开始查询 findSessionSummaries, userId: {}", userId);
             List<Object[]> results = aiConversationRepository.findSessionSummaries(userId);
+            log.info("查询结果数量: {}", results.size());
+
+            // 打印第一条数据看看
+            if (!results.isEmpty()) {
+                Object[] first = results.get(0);
+                log.info("第一条数据: sessionId={}, title={}, preview={}, createTime={}, count={}, fileId={}",
+                        first[0], first[1], first[2], first[3], first[4], first[5]);
+            }
 
             List<Map<String, Object>> sessions = new ArrayList<>();
 
             for (Object[] row : results) {
-                Map<String, Object> session = new HashMap<>();
-                session.put("sessionId", row[0]);                     // session_id
-                session.put("title", row[1] != null ? row[1] : "新对话");  // title
-                session.put("preview", row[2]);                       // 最新的一条问题作为预览
-                session.put("createTime", row[3]);                    // 第一条记录的创建时间
-                session.put("messageCount", ((Number) row[4]).intValue()); // 消息数量
+                try {
+                    Map<String, Object> session = new HashMap<>();
+                    session.put("sessionId", row[0]);
+                    session.put("title", row[1] != null ? row[1] : "新对话");
+                    session.put("preview", row[2]);
+                    session.put("createTime", row[3]);
+                    session.put("messageCount", ((Number) row[4]).intValue());
 
-                // 如果有文件关联，查询文件信息
-                if (row[5] != null) {
-                    Long fileId = ((Number) row[5]).longValue();
-                    Optional<LearningFile> fileOpt = learningFileRepository.findById(fileId);
-                    fileOpt.ifPresent(file -> {
-                        session.put("fileId", fileId);
-                        session.put("fileName", file.getOriginalName());
-                        session.put("fileType", file.getFileType());
-                    });
+                    // 如果有文件关联，查询文件信息
+                    if (row[5] != null) {
+                        try {
+                            Long fileId = ((Number) row[5]).longValue();
+                            Optional<LearningFile> fileOpt = learningFileRepository.findById(fileId);
+                            fileOpt.ifPresent(file -> {
+                                session.put("fileId", fileId);
+                                session.put("fileName", file.getOriginalName());
+                                session.put("fileType", file.getFileType());
+                            });
+                        } catch (Exception e) {
+                            log.error("查询文件信息失败, fileId={}", row[5], e);
+                        }
+                    }
+
+                    sessions.add(session);
+                } catch (Exception e) {
+                    log.error("处理单条会话数据失败", e);
                 }
-
-                sessions.add(session);
             }
 
             Map<String, Object> response = new HashMap<>();
@@ -534,12 +555,13 @@ public class AiQaController {
             response.put("message", "success");
             response.put("data", sessions);
 
+            log.info("返回成功, 会话数量: {}", sessions.size());
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("获取会话列表失败", e);
+            log.error("获取会话列表失败", e);  // 打印完整堆栈
             return ResponseEntity.status(500)
-                    .body(Map.of("code", 500, "message", "获取会话列表失败"));
+                    .body(Map.of("code", 500, "message", "服务器内部错误: " + e.getMessage()));
         }
     }
 
