@@ -81,6 +81,125 @@ public class AiQaController {
     }
 
     /**
+     * 支持GET请求访问聊天页面 - 用于页面刷新和直接访问
+     * 返回页面初始化所需的数据
+     */
+    @GetMapping("/chat")
+    public ResponseEntity<?> chatPage(
+            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+
+        log.info("🔄 GET /ai/chat - 页面刷新/加载");
+
+        // 验证用户身份（可选，因为页面可能未登录也能访问）
+        Long userId = null;
+        boolean authenticated = false;
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            userId = validateAndExtractUserId(authHeader);
+            authenticated = (userId != null);
+        }
+
+        // 构建响应数据
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "success");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("page", "ai-chat");
+        data.put("authenticated", authenticated);
+        data.put("timestamp", System.currentTimeMillis());
+
+        // 如果用户已认证，返回用户相关的数据
+        if (authenticated && userId != null) {
+            try {
+                // 1. 获取会话列表（前20个）
+                List<Object[]> results = aiConversationRepository.findSessionSummaries(userId);
+                List<Map<String, Object>> sessions = new ArrayList<>();
+
+                int limit = Math.min(20, results.size()); // 限制返回数量
+                for (int i = 0; i < limit; i++) {
+                    Object[] row = results.get(i);
+                    Map<String, Object> session = new HashMap<>();
+                    session.put("sessionId", row[0]);
+                    session.put("title", row[1] != null ? row[1] : "新对话");
+                    session.put("preview", row[2]);
+                    session.put("createTime", row[3]);
+                    session.put("messageCount", ((Number) row[4]).intValue());
+
+                    // 如果有文件关联
+                    if (row[5] != null) {
+                        try {
+                            Long fileId = ((Number) row[5]).longValue();
+                            Optional<LearningFile> fileOpt = learningFileRepository.findById(fileId);
+                            fileOpt.ifPresent(file -> {
+                                session.put("fileId", fileId);
+                                session.put("fileName", file.getOriginalName());
+                                session.put("fileType", file.getFileType());
+                            });
+                        } catch (Exception e) {
+                            log.error("查询文件信息失败", e);
+                        }
+                    }
+                    sessions.add(session);
+                }
+
+                data.put("sessions", sessions);
+                data.put("totalSessions", results.size());
+
+                // 2. 获取统计信息
+                try {
+                    long totalCount = aiConversationRepository.countByUserId(userId);
+                    Integer totalToken = aiConversationRepository.sumTokenUsageByUserId(userId);
+                    long sessionCount = aiConversationRepository.countDistinctSessionsByUserId(userId);
+
+                    Map<String, Object> stats = new HashMap<>();
+                    stats.put("totalConversations", totalCount);
+                    stats.put("totalTokens", totalToken != null ? totalToken : 0);
+                    stats.put("totalSessions", sessionCount);
+
+                    data.put("stats", stats);
+                } catch (Exception e) {
+                    log.error("获取统计信息失败", e);
+                    data.put("stats", null);
+                }
+
+                // 3. 如果有最近的会话，返回第一条会话的ID（可用于默认选中）
+                if (!sessions.isEmpty()) {
+                    data.put("currentSessionId", sessions.get(0).get("sessionId"));
+                }
+
+            } catch (Exception e) {
+                log.error("加载用户数据失败", e);
+                data.put("sessions", Collections.emptyList());
+                data.put("error", "部分数据加载失败");
+            }
+        } else {
+            // 未认证用户返回空数据
+            data.put("sessions", Collections.emptyList());
+            data.put("message", "请先登录");
+        }
+
+        // 添加API使用说明（方便调试）
+        data.put("apiInfo", Map.of(
+                "description", "AI聊天API",
+                "endpoints", List.of(
+                        Map.of("method", "POST", "path", "/ai/chat", "description", "发送聊天消息（支持文件上传）"),
+                        Map.of("method", "GET", "path", "/ai/chat/sessions", "description", "获取所有会话列表"),
+                        Map.of("method", "GET", "path", "/ai/chat/history/{sessionId}", "description", "获取会话历史"),
+                        Map.of("method", "DELETE", "path", "/ai/chat/session/{sessionId}", "description", "删除会话")
+                )
+        ));
+
+        response.put("data", data);
+
+        log.info("GET /ai/chat 返回，认证状态: {}, 会话数量: {}",
+                authenticated,
+                data.containsKey("sessions") ? ((List)data.get("sessions")).size() : 0);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * 统一智能问答接口 - 支持流式/非流式，支持文件上传
      */
     @PostMapping(value = "/chat",
