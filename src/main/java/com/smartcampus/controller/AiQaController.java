@@ -14,6 +14,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -554,8 +555,12 @@ public class AiQaController {
             response.put("message", "success");
             response.put("data", sessions);
 
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Connection", "close");
+            headers.set("Keep-Alive", "");
+
             log.info("返回成功, 会话数量: {}", sessions.size());
-            return ResponseEntity.ok(response);
+            return new ResponseEntity<>(response, headers, HttpStatus.OK);
 
         } catch (Exception e) {
             log.error("获取会话列表失败", e);  // 打印完整堆栈
