@@ -190,6 +190,7 @@ public class AiQaController {
                         .doOnNext(chunk -> {
                             try {
                                 // 累积完整回答
+                                log.info("收到 chunk: {}", chunk);
                                 fullAnswer.append(chunk);
                                 emitter.send(chunk);
                             } catch (IOException e) {
