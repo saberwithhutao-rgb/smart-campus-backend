@@ -24,31 +24,47 @@ public class StudyTaskService {
     private static final int[] REVIEW_INTERVALS = {1, 3, 7, 15, 30};
 
     /**
-     * 创建第一次复习任务（当计划完成时）
+     * 创建待生产复习任务（计划完成时调用）
      */
     @Transactional
-    public StudyTask createFirstReviewTask(StudyPlan plan) {
-
-        LocalDate taskDate;
-        if (plan.getUpdatedAt() != null) {
-            taskDate = plan.getUpdatedAt().toLocalDate().plusDays(1);
-        }else{
-            taskDate = LocalDate.now().plusDays(1);
-        }
+    public StudyTask createInitialReviewTask(StudyPlan plan) {
+        log.info("为计划 {} 创建待生产复习任务", plan.getId());
 
         StudyTask task = new StudyTask();
         task.setPlanId(plan.getId());
         task.setUserId(plan.getUserId());
         task.setTitle(plan.getTitle());
         task.setDescription(plan.getDescription());
-        task.setTaskDate(taskDate);
+        task.setTaskDate(LocalDate.now());  // 完成当天
         task.setScheduledTime(null);
         task.setDurationMinutes(30);
         task.setStatus("pending");
-        task.setReviewStage((short) 1); // 第一次复习
+        task.setDifficulty("pending");  // ✅ 待生产标识
+        task.setReviewStage((short) 0);  // 0表示待生产
         task.setCreatedAt(LocalDateTime.now());
 
         return studyTaskDao.save(task);
+    }
+
+    /**
+     * 创建第一次复习任务（当用户生成复习计划时）
+     */
+    @Transactional
+    public StudyTask createFirstReviewTask(StudyTask initialTask) {
+        StudyTask firstTask = new StudyTask();
+        firstTask.setPlanId(initialTask.getPlanId());
+        firstTask.setUserId(initialTask.getUserId());
+        firstTask.setTitle(initialTask.getTitle());
+        firstTask.setDescription(initialTask.getDescription());
+        firstTask.setTaskDate(LocalDate.now().plusDays(1));  // 明天
+        firstTask.setScheduledTime(null);
+        firstTask.setDurationMinutes(30);
+        firstTask.setStatus("pending");
+        firstTask.setDifficulty("medium");  // ✅ 默认中等
+        firstTask.setReviewStage((short) 1);
+        firstTask.setCreatedAt(LocalDateTime.now());
+
+        return studyTaskDao.save(firstTask);
     }
 
     /**
@@ -72,7 +88,6 @@ public class StudyTaskService {
                     .toLocalDate()
                     .plusDays(REVIEW_INTERVALS[nextStage - 1]);
         } else {
-            // 如果没有完成时间（理论上不会发生），用当前时间
             nextDate = LocalDate.now().plusDays(REVIEW_INTERVALS[nextStage - 1]);
         }
 
@@ -85,6 +100,7 @@ public class StudyTaskService {
         nextTask.setScheduledTime(null);
         nextTask.setDurationMinutes(30);
         nextTask.setStatus("pending");
+        nextTask.setDifficulty(currentTask.getDifficulty());  // 沿用难度
         nextTask.setReviewStage((short) nextStage);
         nextTask.setCreatedAt(LocalDateTime.now());
 
@@ -92,10 +108,10 @@ public class StudyTaskService {
     }
 
     /**
-     * 完成任务
+     * 完成任务（待生产任务 → 生成第一次复习）
      */
     @Transactional
-    public StudyTask completeTask(Integer userId, Integer taskId) {
+    public void completeInitialTask(Integer userId, Integer taskId) {
         StudyTask task = studyTaskDao.findById(taskId)
                 .orElseThrow(() -> new BusinessException(404, "任务不存在"));
 
@@ -104,20 +120,43 @@ public class StudyTaskService {
             throw new BusinessException(403, "无权操作此任务");
         }
 
-        // 标记为完成
-        task.setStatus("completed");
-        task.setCompletedAt(LocalDateTime.now());
-        studyTaskDao.save(task);
+        // 检查是否是待生产任务
+        if (!"pending".equals(task.getDifficulty()) || task.getReviewStage() != 0) {
+            throw new BusinessException(400, "只能对待生产任务执行此操作");
+        }
+
+        // ✅ 创建第一次复习任务
+        createFirstReviewTask(task);
+
+        // ✅ 删除待生产任务
+        studyTaskDao.delete(task);
+
+        log.info("待生产任务 {} 已完成，生成了第一次复习任务", taskId);
+    }
+
+    /**
+     * 完成任务（普通复习任务）
+     */
+    @Transactional
+    public void completeReviewTask(Integer userId, Integer taskId) {
+        StudyTask task = studyTaskDao.findById(taskId)
+                .orElseThrow(() -> new BusinessException(404, "任务不存在"));
+
+        if (!task.getUserId().equals(userId)) {
+            throw new BusinessException(403, "无权操作此任务");
+        }
 
         // 创建下一次复习任务
         createNextReviewTask(task);
 
-        log.info("任务 {} 已完成，并创建了下一次复习", taskId);
-        return task;
+        // 删除当前任务
+        studyTaskDao.delete(task);
+
+        log.info("复习任务 {} 已完成", taskId);
     }
 
     /**
-     * 获取用户的待复习任务
+     * 获取用户的待复习任务（包括待生产和普通任务）
      */
     public List<StudyTask> getPendingTasks(Integer userId) {
         return studyTaskDao.findByUserIdAndStatusOrderByTaskDateAsc(userId, "pending");

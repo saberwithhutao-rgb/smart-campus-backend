@@ -3,8 +3,8 @@ package com.smartcampus.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 @Entity
 @Table(name = "study_tasks")
@@ -34,13 +34,16 @@ public class StudyTask {
     private LocalTime scheduledTime;
 
     @Column(name = "duration_minutes")
-    private Integer durationMinutes = 60;
+    private Integer durationMinutes = 30;
 
     @Column(name = "status", length = 20)
-    private String status = "pending";  // pending/in_progress/completed
+    private String status = "pending";
+
+    @Column(name = "difficulty", length = 20)
+    private String difficulty;  // "pending" 表示待生产
 
     @Column(name = "review_stage")
-    private Short reviewStage = 1;  // 复习阶段 1,2,3,4,5...
+    private Short reviewStage = 0;  // 0表示待生产
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;

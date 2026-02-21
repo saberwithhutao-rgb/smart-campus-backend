@@ -59,17 +59,47 @@ public class StudyTaskController {
     }
 
     /**
-     * 完成任务
+     * 完成待生产任务（生成复习计划）
      */
-    @PostMapping("/{id}/complete")
-    public ApiResponse<StudyTask> completeTask(
+    @PostMapping("/{id}/generate")
+    public ApiResponse<Void> generateReviewPlan(
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id) {
 
         Integer userId = extractUserId(authHeader);
-        StudyTask task = studyTaskService.completeTask(userId, id);
+        studyTaskService.completeInitialTask(userId, id);
 
-        return ApiResponse.success("任务已完成", task);
+        return ApiResponse.success("复习计划生成成功", null);
+    }
+
+    /**
+     * 批量完成待生产任务（生成复习计划）
+     */
+    @PostMapping("/batch-generate")
+    public ApiResponse<Void> batchGenerateReviewPlans(
+            @RequestHeader("Authorization") String authHeader,
+            @RequestBody List<Integer> taskIds) {
+
+        Integer userId = extractUserId(authHeader);
+        for (Integer taskId : taskIds) {
+            studyTaskService.completeInitialTask(userId, taskId);
+        }
+
+        return ApiResponse.success("批量生成复习计划成功", null);
+    }
+
+    /**
+     * 完成普通复习任务
+     */
+    @PostMapping("/{id}/complete")
+    public ApiResponse<Void> completeReviewTask(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer id) {
+
+        Integer userId = extractUserId(authHeader);
+        studyTaskService.completeReviewTask(userId, id);
+
+        return ApiResponse.success("任务已完成", null);
     }
 
     /**
