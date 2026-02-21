@@ -39,8 +39,7 @@ public class StudyTaskService {
         task.setScheduledTime(null);
         task.setDurationMinutes(30);
         task.setStatus("pending");
-        task.setDifficulty("pending");  // ✅ 待生产标识
-        task.setReviewStage((short) 0);  // 0表示待生产
+        task.setReviewStage((short) 0);  // ✅ 0表示待生产
         task.setCreatedAt(LocalDateTime.now());
 
         return studyTaskDao.save(task);
@@ -60,8 +59,7 @@ public class StudyTaskService {
         firstTask.setScheduledTime(null);
         firstTask.setDurationMinutes(30);
         firstTask.setStatus("pending");
-        firstTask.setDifficulty("medium");  // ✅ 默认中等
-        firstTask.setReviewStage((short) 1);
+        firstTask.setReviewStage((short) 1);  // ✅ 第1次复习
         firstTask.setCreatedAt(LocalDateTime.now());
 
         return studyTaskDao.save(firstTask);
@@ -100,7 +98,6 @@ public class StudyTaskService {
         nextTask.setScheduledTime(null);
         nextTask.setDurationMinutes(30);
         nextTask.setStatus("pending");
-        nextTask.setDifficulty(currentTask.getDifficulty());  // 沿用难度
         nextTask.setReviewStage((short) nextStage);
         nextTask.setCreatedAt(LocalDateTime.now());
 
@@ -120,8 +117,8 @@ public class StudyTaskService {
             throw new BusinessException(403, "无权操作此任务");
         }
 
-        // 检查是否是待生产任务
-        if (!"pending".equals(task.getDifficulty()) || task.getReviewStage() != 0) {
+        // 检查是否是待生产任务（reviewStage = 0）
+        if (task.getReviewStage() != 0) {
             throw new BusinessException(400, "只能对待生产任务执行此操作");
         }
 
@@ -156,7 +153,7 @@ public class StudyTaskService {
     }
 
     /**
-     * 获取用户的待复习任务（包括待生产和普通任务）
+     * 获取用户的待复习任务
      */
     public List<StudyTask> getPendingTasks(Integer userId) {
         return studyTaskDao.findByUserIdAndStatusOrderByTaskDateAsc(userId, "pending");
