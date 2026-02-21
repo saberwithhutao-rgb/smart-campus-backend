@@ -31,7 +31,7 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
 
     List<AiConversation> findByUserIdOrderByCreatedAtDesc(Long userId);
 
-    // ========== 新增：按会话ID查询，按时间正序（用于显示完整对话历史） ==========
+    // ========== 按会话ID查询，按时间正序（用于显示完整对话历史） ==========
     /**
      * 按会话ID查询所有对话记录，按创建时间正序排列
      * 用于获取一个会话的完整聊天记录（从旧到新）
@@ -107,6 +107,5 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
      * 按用户ID和会话ID查询，按创建时间正序排列
      * 用于显示完整对话历史（从旧到新）
      */
-    @Query("SELECT a FROM AiConversation a WHERE a.sessionId = :sessionId ORDER BY a.createdAt ASC")
     List<AiConversation> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
 }
