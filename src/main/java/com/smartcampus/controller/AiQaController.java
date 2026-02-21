@@ -663,9 +663,15 @@ public class AiQaController {
         }
 
         try {
-            // ✅ 使用新添加的方法：按用户ID和会话ID查询，按时间正序
+            log.info("========== getSessionHistory 开始 ==========");
+            log.info("请求参数 - sessionId: {}, userId: {}", sessionId, userId);
+
+            // 查询数据库
             List<AiConversation> conversations = aiConversationRepository
                     .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+
+            // ===== 打印查询结果 =====
+            log.info("查询结果数量: {}", conversations.size());
 
             // 如果没有找到记录，可以提前返回
             if (conversations.isEmpty()) {
@@ -894,45 +900,6 @@ public class AiQaController {
             return ResponseEntity.status(500)
                     .body(Map.of("code", 500, "message", "获取统计信息失败"));
         }
-    }
-
-    /**
-     * 获取历史对话（原有接口，保持兼容）
-     */
-    @GetMapping("/chat/history")
-    public ResponseEntity<?> getChatHistory(
-            @RequestParam(value = "sessionId", required = false) String sessionId,
-            @RequestParam(value = "limit", defaultValue = "50") Integer limit,
-            @RequestHeader("Authorization") String authHeader) {
-
-        Long userId = validateAndExtractUserId(authHeader);
-        if (userId == null) {
-            return ResponseEntity.status(401)
-                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
-        }
-
-        List<AiConversation> conversations;
-
-        if (sessionId != null && !sessionId.isEmpty()) {
-            conversations = aiConversationRepository
-                    .findByUserIdAndSessionIdOrderByCreatedAtDesc(userId, sessionId);
-            if (conversations.size() > limit) {
-                conversations = conversations.subList(0, limit);
-            }
-        } else {
-            conversations = aiConversationRepository
-                    .findByUserIdOrderByCreatedAtDesc(userId);
-            if (conversations.size() > limit) {
-                conversations = conversations.subList(0, limit);
-            }
-        }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 200);
-        response.put("message", "success");
-        response.put("data", conversations);
-
-        return ResponseEntity.ok(response);
     }
 
     /**
