@@ -663,45 +663,42 @@ public class AiQaController {
         }
 
         try {
-            // 验证该会话属于当前用户
-            if (!aiConversationRepository.existsBySessionIdAndUserId(sessionId, userId)) {
-                return ResponseEntity.status(403)
-                        .body(Map.of("code", 403, "message", "无权访问该会话"));
+            // ✅ 使用新添加的方法：按用户ID和会话ID查询，按时间正序
+            List<AiConversation> conversations = aiConversationRepository
+                    .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+
+            // 如果没有找到记录，可以提前返回
+            if (conversations.isEmpty()) {
+                return ResponseEntity.ok(Map.of(
+                        "code", 200,
+                        "message", "success",
+                        "data", Collections.emptyList()
+                ));
             }
 
-            List<AiConversation> conversations = aiConversationRepository
-                    .findBySessionIdOrderByCreatedAtAsc(sessionId);
-
+            // 转换为前端需要的格式
             List<Map<String, Object>> history = new ArrayList<>();
-
             for (AiConversation conv : conversations) {
                 Map<String, Object> item = new HashMap<>();
+                item.put("id", conv.getId());
+                item.put("userId", conv.getUserId());
+                item.put("title", conv.getTitle());
+                item.put("sessionId", conv.getSessionId());
                 item.put("question", conv.getQuestion());
                 item.put("answer", conv.getAnswer());
-                item.put("createTime", conv.getCreatedAt());
-                item.put("questionType", conv.getQuestionType() != null ? conv.getQuestionType() : "text");
-                item.put("rating", conv.getRating() != null ? conv.getRating() : 0);
+                item.put("fileId", conv.getFileId());
+                item.put("questionType", conv.getQuestionType());
                 item.put("tokenUsage", conv.getTokenUsage());
-
-                // 如果有文件关联，查询文件信息
-                if (conv.getFileId() != null) {
-                    Optional<LearningFile> fileOpt = learningFileRepository.findById(conv.getFileId());
-                    fileOpt.ifPresent(file -> {
-                        item.put("fileId", file.getId());
-                        item.put("fileName", file.getOriginalName());
-                        item.put("fileType", file.getFileType());
-                    });
-                }
-
+                item.put("createdAt", conv.getCreatedAt());
+                item.put("rating", conv.getRating());
                 history.add(item);
             }
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("code", 200);
-            response.put("message", "success");
-            response.put("data", history);
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "success",
+                    "data", history
+            ));
 
         } catch (Exception e) {
             log.error("获取会话历史失败", e);

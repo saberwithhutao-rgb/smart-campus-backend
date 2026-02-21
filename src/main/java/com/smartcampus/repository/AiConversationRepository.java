@@ -102,4 +102,11 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
             "GROUP BY a.session_id " +
             "ORDER BY create_time DESC", nativeQuery = true)
     List<Object[]> findSessionSummaries(Long userId);
+
+    /**
+     * 按用户ID和会话ID查询，按创建时间正序排列
+     * 用于显示完整对话历史（从旧到新）
+     */
+    @Query("SELECT a FROM AiConversation a WHERE a.sessionId = :sessionId ORDER BY a.createdAt ASC")
+    List<AiConversation> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
 }
