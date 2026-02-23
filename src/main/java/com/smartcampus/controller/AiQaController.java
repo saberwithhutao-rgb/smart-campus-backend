@@ -4,11 +4,14 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartcampus.entity.AiConversation;
 import com.smartcampus.entity.LearningFile;
+import com.smartcampus.entity.StudyPlanDetail;
 import com.smartcampus.repository.AiConversationRepository;
 import com.smartcampus.repository.LearningFileRepository;
+import com.smartcampus.repository.StudyPlanDetailRepository;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.FileProcessingService;
 import com.smartcampus.service.QianWenService;
+import com.smartcampus.service.StudyPlanDetailService;
 import com.smartcampus.utils.JwtUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -33,6 +36,7 @@ import java.util.concurrent.*;
 @RequestMapping("/ai")
 @Slf4j
 public class AiQaController {
+    private final StudyPlanDetailService studyPlanDetailService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -57,6 +61,12 @@ public class AiQaController {
 
     private ExecutorService executorService;
     private final Map<String, String> taskStatus = new ConcurrentHashMap<>();
+
+    public AiQaController(QianWenService qianWenService, JwtUtil jwtUtil, StudyPlanDetailService studyPlanDetailService) {
+        this.qianWenService = qianWenService;
+        this.jwtUtil = jwtUtil;
+        this.studyPlanDetailService = studyPlanDetailService; // 注入
+    }
 
     @PostConstruct
     public void init() {
@@ -1168,5 +1178,57 @@ public class AiQaController {
 
         return ResponseEntity.status(500)
                 .body(Map.of("code", 500, "message", message));
+    }
+
+    @PostMapping("/plan-detail")
+    public ResponseEntity<?> generatePlanDetail(@RequestBody Map<String, String> requestData,
+                                                @RequestHeader("Authorization") String authHeader) {
+
+        log.info("🚀 接收生成学习计划请求: {}", requestData);
+
+        // 验证用户
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        // 获取参数
+        String studyPlanIdStr = requestData.get("studyPlanId");
+        String subject = requestData.get("subject");
+        String duration = requestData.get("duration");
+        String level = requestData.get("level");
+
+        // 验证参数
+        if (studyPlanIdStr == null || subject == null || duration == null || level == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("code", 400, "message", "缺少必要参数: studyPlanId, subject, duration, level"));
+        }
+
+        try {
+            Long studyPlanId = Long.parseLong(studyPlanIdStr);
+
+            // 调用 Service（注意第一个参数是 studyPlanId，不是 userId）
+            Map<String, Object> result = studyPlanDetailService.createPlanDetailForUser(
+                    studyPlanId,  // 这里传 studyPlanId
+                    subject,
+                    duration,
+                    level
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "success",
+                    "data", result
+            ));
+
+        } catch (NumberFormatException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("code", 400, "message", "studyPlanId 格式错误"));
+        } catch (Exception e) {
+            log.error("生成学习计划失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("code", 500, "message", "生成学习计划失败: " + e.getMessage()));
+        }
     }
 }
