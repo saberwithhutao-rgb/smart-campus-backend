@@ -50,7 +50,7 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
 
         // 4. 创建实体并保存到数据库 - 匹配新表结构
         StudyPlanDetail detail = new StudyPlanDetail();
-        detail.setStudyPlanId(studyPlanId);  // 改为 studyPlanId
+        detail.setStudyPlanId(studyPlanId.intValue());  // 改为 studyPlanId
         detail.setDuration(duration);         // 单次学习时长
         detail.setLevel(level);               // 难度级别
         detail.setPlanDetails(planNode.toString()); // AI生成的计划内容
