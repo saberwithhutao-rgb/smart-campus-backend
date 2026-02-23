@@ -72,25 +72,73 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
     // 其他方法保持不变...
     private String buildPrompt(String subject, String duration, String level) {
         return String.format(
-                "请为%s级别的学生制定一份关于'%s'的详细学习计划，总时长为%s。计划应非常详细，包括每周甚至每天的具体学习任务、推荐的学习资源（书籍、网站、视频等）、练习建议以及阶段性的小测验或项目。请务必以标准的JSON格式返回，结构如下：\n" +
+                "请为%s级别的学生制定一份关于'%s'的详细学习计划，总时长为%s。\n\n" +
+                        "## 重要要求：\n" +
+                        "1. 必须按周（week）组织计划\n" +
+                        "2. 每周内按天（days）细分\n" +
+                        "3. 不要使用sessions字段，直接把任务放在days层级\n" +
+                        "4. 返回纯JSON，不要包含任何其他文字说明\n\n" +
+                        "## 必须严格遵守的JSON格式：\n" +
                         "{\n" +
                         "  \"plan\": [\n" +
                         "    {\n" +
                         "      \"week\": 1,\n" +
-                        "      \"title\": \"Week 1: Introduction to ...\",\n" +
+                        "      \"title\": \"第1周：xxx\",\n" +
                         "      \"days\": [\n" +
                         "        {\n" +
                         "          \"day\": 1,\n" +
-                        "          \"topic\": \"Basic Concepts\",\n" +
-                        "          \"tasks\": [\"Read Chapter 1\", \"Watch Video 1.1\"],\n" +
-                        "          \"resources\": [\"Book A\", \"Website B\"],\n" +
-                        "          \"assignments\": [\"Exercise 1.1\"]\n" +
+                        "          \"topic\": \"学习主题\",\n" +
+                        "          \"tasks\": [\"任务1\", \"任务2\"],\n" +
+                        "          \"resources\": [\"资源1\", \"资源2\"],\n" +
+                        "          \"assignments\": [\"作业1\"]\n" +
                         "        }\n" +
                         "      ]\n" +
                         "    }\n" +
                         "  ]\n" +
-                        "}\n" +
-                        "请确保JSON格式正确，可以直接被解析。",
+                        "}\n\n" +
+                        "## 示例（请严格按照这个结构）：\n" +
+                        "{\n" +
+                        "  \"plan\": [\n" +
+                        "    {\n" +
+                        "      \"week\": 1,\n" +
+                        "      \"title\": \"第1周：HTML和CSS基础\",\n" +
+                        "      \"days\": [\n" +
+                        "        {\n" +
+                        "          \"day\": 1,\n" +
+                        "          \"topic\": \"HTML入门\",\n" +
+                        "          \"tasks\": [\"学习HTML基本标签\", \"创建第一个网页\"],\n" +
+                        "          \"resources\": [\"MDN Web Docs - HTML教程\", \"W3Schools - HTML基础\"],\n" +
+                        "          \"assignments\": [\"制作个人简介页面\"]\n" +
+                        "        },\n" +
+                        "        {\n" +
+                        "          \"day\": 2,\n" +
+                        "          \"topic\": \"CSS基础\",\n" +
+                        "          \"tasks\": [\"学习CSS选择器\", \"掌握盒模型\"],\n" +
+                        "          \"resources\": [\"CSS Tricks - 盒模型指南\", \"W3Schools - CSS教程\"],\n" +
+                        "          \"assignments\": [\"美化个人简介页面\"]\n" +
+                        "        }\n" +
+                        "      ]\n" +
+                        "    },\n" +
+                        "    {\n" +
+                        "      \"week\": 2,\n" +
+                        "      \"title\": \"第2周：JavaScript基础\",\n" +
+                        "      \"days\": [\n" +
+                        "        {\n" +
+                        "          \"day\": 8,\n" +
+                        "          \"topic\": \"JavaScript语法\",\n" +
+                        "          \"tasks\": [\"学习变量和数据类型\", \"掌握运算符\"],\n" +
+                        "          \"resources\": [\"JavaScript.info - 基础知识\", \"MDN - JavaScript指南\"],\n" +
+                        "          \"assignments\": [\"编写简单的计算器程序\"]\n" +
+                        "        }\n" +
+                        "      ]\n" +
+                        "    }\n" +
+                        "  ]\n" +
+                        "}\n\n" +
+                        "请确保：\n" +
+                        "1. 不要添加任何额外字段（如sessions）\n" +
+                        "2. 严格按照示例格式返回\n" +
+                        "3. 使用中文回复\n" +
+                        "4. 确保JSON格式正确，可直接解析",
                 level, subject, duration
         );
     }
