@@ -15,7 +15,7 @@ public class StudyPlanDetail {
     private Long id;
 
     @Column(name = "study_plan_id", nullable = false)
-    private Long studyPlanId;  // 对应表里的 study_plan_id
+    private Integer studyPlanId;  // 对应表里的 study_plan_id
 
     @Column(name = "duration", length = 50)
     private String duration;    // 单次学习时长
