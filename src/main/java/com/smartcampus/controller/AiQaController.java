@@ -1186,20 +1186,17 @@ public class AiQaController {
 
         log.info("🚀 接收生成学习计划请求: {}", requestData);
 
-        // 验证用户
         Long userId = validateAndExtractUserId(authHeader);
         if (userId == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("code", 401, "message", "未授权或Token无效"));
         }
 
-        // 获取参数
         String studyPlanIdStr = requestData.get("studyPlanId");
         String subject = requestData.get("subject");
         String duration = requestData.get("duration");
         String level = requestData.get("level");
 
-        // 验证参数
         if (studyPlanIdStr == null || subject == null || duration == null || level == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("code", 400, "message", "缺少必要参数: studyPlanId, subject, duration, level"));
@@ -1208,18 +1205,14 @@ public class AiQaController {
         try {
             Long studyPlanId = Long.parseLong(studyPlanIdStr);
 
-            // 调用 Service（注意第一个参数是 studyPlanId，不是 userId）
-            Map<String, Object> result = studyPlanDetailService.createPlanDetailForUser(
-                    studyPlanId,  // 这里传 studyPlanId
-                    subject,
-                    duration,
-                    level
+            Map<String, Object> serviceResult = studyPlanDetailService.createPlanDetailForUser(
+                    studyPlanId, subject, duration, level
             );
 
             return ResponseEntity.ok(Map.of(
                     "code", 200,
                     "message", "success",
-                    "data", result
+                    "data", serviceResult
             ));
 
         } catch (NumberFormatException e) {
