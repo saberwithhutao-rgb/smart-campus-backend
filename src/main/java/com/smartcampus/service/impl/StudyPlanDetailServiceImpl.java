@@ -32,10 +32,15 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
         String prompt = buildPrompt(subject, duration, level);
 
         // 2. 调用AI服务 - 直接获取文本
-        String planText = callAIService(prompt);
-        if (planText == null || planText.trim().isEmpty()) {
-            log.error("AI服务返回空响应");
-            throw new Exception("AI服务返回空响应");
+        String planText = null;
+        try {
+            planText = callAIService(prompt);
+            if (planText == null || planText.trim().isEmpty()) {
+                throw new Exception("AI服务返回空响应");
+            }
+        } catch (Exception e) {
+            log.error("AI服务调用失败，不保存到数据库: {}", e.getMessage());
+            throw e;  // 直接抛出异常，不保存
         }
 
         // 3. 保存到数据库
@@ -77,7 +82,7 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
                     .block(java.time.Duration.ofSeconds(120));
         } catch (Exception e) {
             log.error("调用AI服务失败: {}", e.getMessage(), e);
-            throw e;
+            throw new Exception("AI服务调用失败: " + e.getMessage());
         }
     }
 }

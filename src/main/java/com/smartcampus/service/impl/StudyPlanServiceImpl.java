@@ -282,25 +282,18 @@ public class StudyPlanServiceImpl implements StudyPlanService {
             throw new BusinessException(403, "已完成计划不能重新激活，请创建新计划");
         }
 
-        boolean isBecomingCompleted = !"completed".equals(plan.getStatus());
+        plan.setStatus("completed");
+        log.info("计划从未完成变为完成，生成待生产复习任务");
 
-        if (isBecomingCompleted) {
-            plan.setStatus("completed");
-            log.info("计划从未完成变为完成，生成待生产复习任务");
-
-            // ✅ 生成待生产复习任务（不是第一次复习）
-            CompletableFuture.runAsync(() -> {
-                try {
-                    studyTaskService.createInitialReviewTask(plan);
-                    log.info("待生产复习任务生成成功");
-                } catch (Exception e) {
-                    log.error("待生产复习任务生成失败", e);
-                }
-            });
-        } else {
-            plan.setStatus("active");
-            log.info("计划从完成变为未完成，不生成复习任务");
-        }
+        // ✅ 生成待生产复习任务（不是第一次复习）
+        CompletableFuture.runAsync(() -> {
+            try {
+                studyTaskService.createInitialReviewTask(plan);
+                log.info("待生产复习任务生成成功");
+            } catch (Exception e) {
+                log.error("待生产复习任务生成失败", e);
+            }
+        });
 
         StudyPlan updatedPlan = studyPlanDao.save(plan);
         return updatedPlan;
