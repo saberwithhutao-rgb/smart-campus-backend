@@ -8,6 +8,7 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 
 @Service
@@ -32,25 +33,18 @@ public class FileProcessingService {
         String extension = getFileExtension(filename);
 
         try {
-            switch (extension.toLowerCase()) {
-                case "pdf":
-                    return extractTextFromPdf(file);
-                case "docx":
-                    return extractTextFromDocx(file);
-                case "txt":
-                    return extractTextFromTxt(file);
-                case "jpg":
-                case "jpeg":
-                case "png":
+            return switch (extension.toLowerCase()) {
+                case "pdf" -> extractTextFromPdf(file);
+                case "docx" -> extractTextFromDocx(file);
+                case "txt" -> extractTextFromTxt(file);
+                case "jpg", "jpeg", "png" ->
                     // TODO: 集成OCR识别
-                    return "图片文件，待集成OCR功能";
-                case "mp3":
-                case "wav":
+                        "图片文件，待集成OCR功能";
+                case "mp3", "wav" ->
                     // TODO: 集成语音识别
-                    return "语音文件，待集成ASR功能";
-                default:
-                    throw new UnsupportedOperationException("不支持的文件格式: " + extension);
-            }
+                        "语音文件，待集成ASR功能";
+                default -> throw new UnsupportedOperationException("不支持的文件格式: " + extension);
+            };
         } catch (Exception e) {
             log.error("文件解析失败: {}", filename, e);
             throw new RuntimeException("文件解析失败: " + e.getMessage());
@@ -91,7 +85,7 @@ public class FileProcessingService {
     }
 
     private String extractTextFromTxt(MultipartFile file) throws IOException {
-        return new String(file.getBytes(), "UTF-8");
+        return new String(file.getBytes(), StandardCharsets.UTF_8);
     }
 
     private String getFileExtension(String filename) {
@@ -111,5 +105,51 @@ public class FileProcessingService {
             }
         }
         return false;
+    }
+    /**
+     * 从已保存的文件路径提取文本内容
+     * @param filePath 文件路径
+     * @return 提取的文本内容
+     */
+    public String extractTextFromFileByPath(String filePath) {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            throw new RuntimeException("文件不存在: " + filePath);
+        }
+
+        String filename = file.getName();
+        String extension = getFileExtension(filename);
+
+        try {
+            return switch (extension.toLowerCase()) {
+                case "pdf" -> extractTextFromPdfFile(file);
+                case "docx" -> extractTextFromDocxFile(file);
+                case "txt" -> extractTextFromTxtFile(file);
+                default -> throw new UnsupportedOperationException("不支持的文件格式: " + extension);
+            };
+        } catch (Exception e) {
+            log.error("文件解析失败: {}", filename, e);
+            throw new RuntimeException("文件解析失败: " + e.getMessage());
+        }
+    }
+
+    private String extractTextFromPdfFile(File file) throws IOException {
+        try (PDDocument document = PDDocument.load(file)) {
+            PDFTextStripper stripper = new PDFTextStripper();
+            stripper.setSortByPosition(true);
+            return stripper.getText(document);
+        }
+    }
+
+    private String extractTextFromDocxFile(File file) throws IOException {
+        try (FileInputStream fis = new FileInputStream(file);
+             XWPFDocument doc = new XWPFDocument(fis)) {
+            XWPFWordExtractor extractor = new XWPFWordExtractor(doc);
+            return extractor.getText();
+        }
+    }
+
+    private String extractTextFromTxtFile(File file) throws IOException {
+        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
     }
 }

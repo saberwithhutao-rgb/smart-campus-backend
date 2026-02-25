@@ -10,4 +10,6 @@ import java.util.List;
 public interface StudyPlanDetailRepository extends JpaRepository<StudyPlanDetail, Long> {
     // 按学习计划ID查找
     List<StudyPlanDetail> findByStudyPlanId(Long studyPlanId);
+    // 按学习计划ID查找并按创建时间倒序
+    List<StudyPlanDetail> findByStudyPlanIdOrderByCreatedAtDesc(Long studyPlanId);
 }

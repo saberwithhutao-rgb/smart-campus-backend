@@ -11,7 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
-import com.smartcampus.dto.RegisterRequest;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -162,14 +161,14 @@ public class TestController {
 
                 // 随机倾斜角度
                 double angle = (RANDOM.nextDouble() - 0.5) * Math.PI / 6; // -15°到+15°
-                g2d.rotate(angle, charWidth * (i + 1), height / 2);
+                g2d.rotate(angle, charWidth * (i + 1), (double) height / 2);
 
                 // 绘制字符
                 String ch = String.valueOf(text.charAt(i));
                 g2d.drawString(ch, charWidth * (i + 1) - 10, height / 2 + 10);
 
                 // 恢复旋转
-                g2d.rotate(-angle, charWidth * (i + 1), height / 2);
+                g2d.rotate(-angle, charWidth * (i + 1), (double) height / 2);
             }
 
             // 添加干扰线

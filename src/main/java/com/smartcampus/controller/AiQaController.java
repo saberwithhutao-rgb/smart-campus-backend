@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartcampus.entity.AiConversation;
 import com.smartcampus.entity.LearningFile;
-import com.smartcampus.entity.StudyPlanDetail;
 import com.smartcampus.repository.AiConversationRepository;
 import com.smartcampus.repository.LearningFileRepository;
-import com.smartcampus.repository.StudyPlanDetailRepository;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.FileProcessingService;
 import com.smartcampus.service.QianWenService;
@@ -161,7 +159,6 @@ public class AiQaController {
         emitter.onError((ex) -> {
             log.error("SSE连接错误，会话ID: {}", sessionId, ex);
             try {
-                // 尝试发送错误消息
                 Map<String, Object> errorMsg = Map.of(
                         "error", "处理失败",
                         "message", ex.getMessage()
@@ -173,27 +170,58 @@ public class AiQaController {
             emitter.complete();
         });
 
+        // ===== 方案一：先在主线程中保存文件 =====
+        String savedFilePath = null;
+        Long fileId = null;
+
+        if (file != null && !file.isEmpty()) {
+            try {
+                // 1. 在主线程中保存文件到持久化目录
+                LearningFile learningFile = saveLearningFile(file, userId.toString());
+                fileId = learningFile.getId();
+                savedFilePath = learningFile.getFilePath(); // 获取保存后的文件路径
+                log.info("文件已保存到: {}", savedFilePath);
+            } catch (Exception e) {
+                log.error("保存文件失败", e);
+                try {
+                    Map<String, Object> errorMsg = Map.of(
+                            "error", "文件保存失败",
+                            "message", e.getMessage()
+                    );
+                    emitter.send(errorMsg);
+                } catch (IOException ex) {
+                    log.error("发送错误消息失败", ex);
+                }
+                emitter.complete();
+                return emitter;
+            }
+        }
+
+        // 创建 final 副本，用于 lambda 表达式
+        final Long finalFileId = fileId;
+        final String finalSavedFilePath = savedFilePath;
+        final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
+        final String finalSessionId = sessionId;
+        final Long finalUserId = userId;
+        final String finalQuestion = question;
+
+        // 2. 异步线程中处理 AI 请求
         executorService.submit(() -> {
             try {
                 String enhancedQuestion = question;
-                Long fileId = null;
 
-                // 如果有文件，先处理文件
-                if (file != null && !file.isEmpty()) {
-                    LearningFile learningFile = saveLearningFile(file, userId.toString());
-                    fileId = learningFile.getId();
+                // 如果有文件，从保存的文件路径读取内容
+                if (finalSavedFilePath != null) {
+                    // 调用 FileProcessingService 的新方法，从文件路径读取
+                    String fileContent = fileProcessingService.extractTextFromFileByPath(finalSavedFilePath);
 
-                    String fileContent = fileProcessingService.extractTextFromFile(file);
-                    enhancedQuestion = question + "\n\n参考文件内容：\n" +
-                            fileContent.substring(0, Math.min(2000, fileContent.length()));
+                    // 限制文件内容长度，避免提示词过长
+                    if (fileContent.length() > 2000) {
+                        fileContent = fileContent.substring(0, 2000) + "...\n[文件内容过长，已截断]";
+                    }
+
+                    enhancedQuestion = question + "\n\n参考文件内容：\n" + fileContent;
                 }
-
-                // 创建 final 副本，用于 lambda 表达式
-                final Long finalFileId = fileId;
-                final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
-                final String finalSessionId = sessionId;
-                final Long finalUserId = userId;
-                final String finalQuestion = question;
 
                 // 用于累积纯文本（保存到数据库用）
                 StringBuilder fullAnswerText = new StringBuilder();
@@ -202,7 +230,7 @@ public class AiQaController {
                 qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
                         .doOnNext(chunk -> {
                             try {
-                                log.info("收到 chunk: {}", chunk);
+                                log.debug("收到 chunk: {}", chunk);
 
                                 // 从chunk中提取纯文本内容并累积（用于保存到数据库）
                                 String textChunk = extractTextFromChunk(chunk);
@@ -210,7 +238,7 @@ public class AiQaController {
                                     fullAnswerText.append(textChunk);
                                 }
 
-                                // 原样发送给前端（前端需要这个格式来显示）
+                                // 原样发送给前端
                                 emitter.send(chunk);
 
                             } catch (IOException e) {
@@ -222,11 +250,11 @@ public class AiQaController {
                             try {
                                 log.info("流式完成，累积的纯文本长度: {}", fullAnswerText.length());
 
-                                // 保存对话记录到数据库（使用纯文本）
+                                // 保存对话记录到数据库
                                 saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
                                         fullAnswerText.toString(), finalFileId, isFirstMessage);
 
-                                // 发送结束标记给前端
+                                // 发送结束标记
                                 emitter.send("data: [DONE]\n\n");
 
                                 log.info("流式完成，会话ID: {}, 回答长度: {}", finalSessionId, fullAnswerText.length());
@@ -240,7 +268,6 @@ public class AiQaController {
                         .doOnError(error -> {
                             log.error("流式处理错误: {}", error.getMessage());
                             try {
-                                // 发送错误消息给前端
                                 Map<String, Object> errorResponse = Map.of(
                                         "error", "AI处理失败",
                                         "message", error.getMessage()
@@ -310,7 +337,7 @@ public class AiQaController {
 
                 // 提取content字段
                 JsonNode choices = root.path("choices");
-                if (choices.isArray() && choices.size() > 0) {
+                if (choices.isArray() && !choices.isEmpty()) {
                     JsonNode delta = choices.get(0).path("delta");
                     if (delta.has("content")) {
                         return delta.path("content").asText();
@@ -559,8 +586,7 @@ public class AiQaController {
         }
 
         Map<String, Object> status = new HashMap<>();
-        if (executorService instanceof ThreadPoolExecutor) {
-            ThreadPoolExecutor pool = (ThreadPoolExecutor) executorService;
+        if (executorService instanceof ThreadPoolExecutor pool) {
             status.put("activeThreads", pool.getActiveCount());
             status.put("queueSize", pool.getQueue().size());
             status.put("completedTasks", pool.getCompletedTaskCount());
@@ -602,7 +628,7 @@ public class AiQaController {
 
             // 打印第一条数据看看
             if (!results.isEmpty()) {
-                Object[] first = results.get(0);
+                Object[] first = results.getFirst();
                 log.info("第一条数据: sessionId={}, title={}, preview={}, createTime={}, count={}, fileId={}",
                         first[0], first[1], first[2], first[3], first[4], first[5]);
             }
@@ -679,9 +705,6 @@ public class AiQaController {
             // 查询数据库
             List<AiConversation> conversations = aiConversationRepository
                     .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
-
-            // ===== 打印查询结果 =====
-            log.info("查询结果数量: {}", conversations.size());
 
             // 如果没有找到记录，可以提前返回
             if (conversations.isEmpty()) {
@@ -790,13 +813,13 @@ public class AiQaController {
             }
 
             // 验证所有权
-            if (!conversations.get(0).getUserId().equals(userId)) {
+            if (!conversations.getFirst().getUserId().equals(userId)) {
                 return ResponseEntity.status(403)
                         .body(Map.of("code", 403, "message", "无权修改该会话"));
             }
 
             // 更新第一条记录的title
-            AiConversation firstConv = conversations.get(0);
+            AiConversation firstConv = conversations.getFirst();
             firstConv.setTitle(newTitle.trim());
             aiConversationRepository.save(firstConv);
 
@@ -973,8 +996,7 @@ public class AiQaController {
             }
 
             // 4. 检查线程池
-            if (executorService instanceof ThreadPoolExecutor) {
-                ThreadPoolExecutor pool = (ThreadPoolExecutor) executorService;
+            if (executorService instanceof ThreadPoolExecutor pool) {
                 status.put("threadPool", Map.of(
                         "activeThreads", pool.getActiveCount(),
                         "queueSize", pool.getQueue().size(),
@@ -1106,7 +1128,7 @@ public class AiQaController {
         conversation.setCreatedAt(LocalDateTime.now());
         conversation.setQuestionType("text");
 
-        conversation.setRating((short) 0);  // 或者 conversation.setRating(Short.valueOf("0"));
+        conversation.setRating((short) 0);
 
         // 如果是会话的第一条消息，生成标题（取问题前30个字符）
         if (isFirstMessage) {
