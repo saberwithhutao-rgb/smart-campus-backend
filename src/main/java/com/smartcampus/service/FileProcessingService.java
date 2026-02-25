@@ -150,6 +150,6 @@ public class FileProcessingService {
     }
 
     private String extractTextFromTxtFile(File file) throws IOException {
-        return new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+        return Files.readString(file.toPath());
     }
 }

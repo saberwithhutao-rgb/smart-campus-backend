@@ -27,7 +27,7 @@ public class StudyTaskService {
      * 创建待生产复习任务（计划完成时调用）
      */
     @Transactional
-    public StudyTask createInitialReviewTask(StudyPlan plan) {
+    public void createInitialReviewTask(StudyPlan plan) {
         log.info("为计划 {} 创建待生产复习任务", plan.getId());
 
         StudyTask task = new StudyTask();
@@ -42,14 +42,14 @@ public class StudyTaskService {
         task.setReviewStage((short) 0);  // ✅ 0表示待生产
         task.setCreatedAt(LocalDateTime.now());
 
-        return studyTaskDao.save(task);
+        studyTaskDao.save(task);
     }
 
     /**
      * 创建第一次复习任务（当用户生成复习计划时）
      */
     @Transactional
-    public StudyTask createFirstReviewTask(StudyTask initialTask) {
+    public void createFirstReviewTask(StudyTask initialTask) {
         StudyTask firstTask = new StudyTask();
         firstTask.setPlanId(initialTask.getPlanId());
         firstTask.setUserId(initialTask.getUserId());
@@ -62,20 +62,20 @@ public class StudyTaskService {
         firstTask.setReviewStage((short) 1);  // ✅ 第1次复习
         firstTask.setCreatedAt(LocalDateTime.now());
 
-        return studyTaskDao.save(firstTask);
+        studyTaskDao.save(firstTask);
     }
 
     /**
      * 创建下一次复习任务（当完成当前任务时）
      */
     @Transactional
-    public StudyTask createNextReviewTask(StudyTask currentTask) {
+    public void createNextReviewTask(StudyTask currentTask) {
         int currentStage = currentTask.getReviewStage();
 
         // 如果已经是第5次复习，不再创建新任务
         if (currentStage >= 5) {
             log.info("计划 {} 已完成所有5次复习", currentTask.getPlanId());
-            return null;
+            return;
         }
 
         int nextStage = currentStage + 1;
@@ -101,7 +101,7 @@ public class StudyTaskService {
         nextTask.setReviewStage((short) nextStage);
         nextTask.setCreatedAt(LocalDateTime.now());
 
-        return studyTaskDao.save(nextTask);
+        studyTaskDao.save(nextTask);
     }
 
     /**

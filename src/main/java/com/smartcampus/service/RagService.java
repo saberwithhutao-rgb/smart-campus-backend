@@ -2,7 +2,6 @@ package com.smartcampus.service;
 
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import java.util.List;
 
 @Service
 public class RagService {
@@ -21,9 +20,9 @@ public class RagService {
                 String fullAnswer = answerWithRAG(question, userId);
                 String[] words = fullAnswer.split("");
 
-                for (int i = 0; i < words.length; i++) {
+                for (String word : words) {
                     if (!emitter.isCancelled()) {
-                        emitter.next(words[i]);
+                        emitter.next(word);
                         Thread.sleep(50); // 控制输出速度
                     }
                 }

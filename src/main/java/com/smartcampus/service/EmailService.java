@@ -142,15 +142,15 @@ public class EmailService {
                         <div class="logo">智慧校园平台</div>
                         <h2>邮箱验证码</h2>
                     </div>
-                    
+            
                     <p>您好！</p>
                     <p>您正在进行邮箱验证操作，验证码如下：</p>
-                    
+            
                     <div class="code-box">
                         <div class="verification-code">%s</div>
                         <p>（有效期10分钟）</p>
                     </div>
-                    
+            
                     <div class="tip">
                         <strong>温馨提示：</strong>
                         <ul>
@@ -159,10 +159,10 @@ public class EmailService {
                             <li>验证码将在10分钟后失效</li>
                         </ul>
                     </div>
-                    
+            
                     <p>感谢您使用智慧校园平台！</p>
                     <p>如果这不是您请求的操作，请忽略此邮件。</p>
-                    
+            
                     <div class="footer">
                         <p>此为系统邮件，请勿直接回复</p>
                         <p>© 2026 智慧校园平台 版权所有</p>

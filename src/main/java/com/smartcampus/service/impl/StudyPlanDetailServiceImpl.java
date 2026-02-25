@@ -64,13 +64,16 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
 
     private String buildPrompt(String subject, String duration, String level) {
         return String.format(
-                "请为%s级别的学生制定一份为期%s的'%s'学习计划。\n\n" +
-                        "要求：\n" +
-                        "1. 直接输出计划内容，不要任何开场白（如'以下是为您制定的计划'等）\n" +
-                        "2. 不要任何结束语（如'希望这个计划对你有帮助'等）\n" +
-                        "3. 直接开始写计划，用 Markdown 格式\n" +
-                        "4. 计划要详细，包括每天的学习内容、任务和资源\n\n" +
-                        "现在开始输出计划：",
+                """
+                        请为%s级别的学生制定一份为期%s的'%s'学习计划。
+                        
+                        要求：
+                        1. 直接输出计划内容，不要任何开场白（如'以下是为您制定的计划'等）
+                        2. 不要任何结束语（如'希望这个计划对你有帮助'等）
+                        3. 直接开始写计划，用 Markdown 格式
+                        4. 计划要详细，包括每天的学习内容、任务和资源
+                        
+                        现在开始输出计划：""",
                 level, duration, subject
         );
     }

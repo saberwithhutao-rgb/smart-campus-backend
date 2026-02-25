@@ -89,10 +89,10 @@ public class QianWenService {
      */
     private String parseNonStreamResponse(String response) {
         try {
-            Map<String, Object> responseMap = objectMapper.readValue(response, Map.class);
+            Map responseMap = objectMapper.readValue(response, Map.class);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) responseMap.get("choices");
             if (choices != null && !choices.isEmpty()) {
-                Map<String, Object> choice = choices.get(0);
+                Map<String, Object> choice = choices.getFirst();
                 Map<String, String> message = (Map<String, String>) choice.get("message");
                 return message.get("content");
             }
@@ -104,12 +104,13 @@ public class QianWenService {
     }
 
     private String buildSystemPrompt() {
-        return "你是智慧校园的个性化学习伴侣，负责解答学生关于学习、课程、校园生活等方面的问题。\n" +
-                "回答要求：\n" +
-                "1. 专业、准确、友好\n" +
-                "2. 如果提供参考资料，请基于资料回答\n" +
-                "3. 如果资料不足，可以结合常识回答但需说明\n" +
-                "4. 回答格式清晰，适当使用分段和重点标注";
+        return """
+                你是智慧校园的个性化学习伴侣，负责解答学生关于学习、课程、校园生活等方面的问题。
+                回答要求：
+                1. 专业、准确、友好
+                2. 如果提供参考资料，请基于资料回答
+                3. 如果资料不足，可以结合常识回答但需说明
+                4. 回答格式清晰，适当使用分段和重点标注""";
     }
 
     private String buildUserPrompt(String question, List<String> contexts) {
