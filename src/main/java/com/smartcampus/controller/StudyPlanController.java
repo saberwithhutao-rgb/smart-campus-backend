@@ -34,7 +34,6 @@ public class StudyPlanController {
             @RequestParam(required = false) String planType,
             @RequestParam(required = false) String subject) {
 
-        // ✅ 从Token解析userId，没有默认值！
         Integer userId = extractUserIdFromToken(authHeader);
 
         PageResult<StudyPlan> result = studyPlanService.getPlans(

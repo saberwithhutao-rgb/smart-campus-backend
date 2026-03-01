@@ -3,6 +3,7 @@ package com.smartcampus.exception;
 import com.smartcampus.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,13 +17,29 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     /**
-     * 处理业务异常
+     * 处理业务异常 - ✅ 修改为动态HTTP状态码
      */
     @ExceptionHandler(BusinessException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ApiResponse<Void> handleBusinessException(BusinessException e) {
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
         log.warn("业务异常: {}", e.getMessage());
-        return ApiResponse.error(e.getCode() != null ? e.getCode() : 400, e.getMessage());
+
+        // 根据业务异常中的 code 返回对应的 HTTP 状态码
+        HttpStatus status = HttpStatus.BAD_REQUEST; // 默认 400
+
+        if (e.getCode() == 401) {
+            status = HttpStatus.UNAUTHORIZED;
+        } else if (e.getCode() == 403) {
+            status = HttpStatus.FORBIDDEN;
+        } else if (e.getCode() == 404) {
+            status = HttpStatus.NOT_FOUND;
+        } else if (e.getCode() >= 500) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+
+        return new ResponseEntity<>(
+                ApiResponse.error(e.getCode(), e.getMessage()),
+                status
+        );
     }
 
     /**
@@ -39,7 +56,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * ✅ 处理 IllegalArgumentException（用于Token缺失/格式错误）
+     * 处理 IllegalArgumentException（用于Token缺失/格式错误）
      */
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
@@ -49,12 +66,11 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * ✅ 处理 RuntimeException（用于Token无效/解析失败）
+     * 处理 RuntimeException（用于Token无效/解析失败）
      */
     @ExceptionHandler(RuntimeException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ApiResponse<Void> handleRuntimeException(RuntimeException e) {
-        // 如果是Token相关的异常，返回401
         if (e.getMessage() != null &&
                 (e.getMessage().contains("Token") ||
                         e.getMessage().contains("token") ||
@@ -62,8 +78,6 @@ public class GlobalExceptionHandler {
             log.warn("Token认证失败: {}", e.getMessage());
             return ApiResponse.error(401, e.getMessage());
         }
-
-        // 其他RuntimeException返回500
         log.error("系统异常: ", e);
         return ApiResponse.error(500, "服务器内部错误");
     }

@@ -613,7 +613,6 @@ public class AiQaController {
         log.info("🔥 getConversationSessions 开始执行");
 
         Long userId = validateAndExtractUserId(authHeader);
-        log.info("userId: {}", userId);
 
         if (userId == null) {
             log.warn("userId 为 null");
@@ -622,9 +621,7 @@ public class AiQaController {
         }
 
         try {
-            log.info("开始查询 findSessionSummaries, userId: {}", userId);
             List<Object[]> results = aiConversationRepository.findSessionSummaries(userId);
-            log.info("查询结果数量: {}", results.size());
 
             // 打印第一条数据看看
             if (!results.isEmpty()) {
@@ -672,9 +669,7 @@ public class AiQaController {
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("Connection", "close");
-            headers.set("Keep-Alive", "");
 
-            log.info("返回成功, 会话数量: {}", sessions.size());
             return new ResponseEntity<>(response, headers, HttpStatus.OK);
 
         } catch (Exception e) {
