@@ -17,29 +17,27 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     /**
-     * 处理业务异常 - ✅ 修改为动态HTTP状态码
+     * 处理业务异常 - 根据业务code动态返回HTTP状态码
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
-        log.warn("业务异常: {}", e.getMessage());
+        log.warn("业务异常: code={}, message={}", e.getCode(), e.getMessage());
 
-        // 根据业务异常中的 code 返回对应的 HTTP 状态码
-        HttpStatus status = HttpStatus.BAD_REQUEST; // 默认 400
+        // 直接用业务code作为HTTP状态码
+        HttpStatus status;
 
-        if (e.getCode() == 401) {
-            status = HttpStatus.UNAUTHORIZED;
-        } else if (e.getCode() == 403) {
-            status = HttpStatus.FORBIDDEN;
-        } else if (e.getCode() == 404) {
-            status = HttpStatus.NOT_FOUND;
-        } else if (e.getCode() >= 500) {
-            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        try {
+            status = HttpStatus.valueOf(e.getCode());
+        } catch (IllegalArgumentException ex) {
+            // 如果业务code不是有效的HTTP状态码，默认返回400
+            status = HttpStatus.BAD_REQUEST;
         }
 
-        return new ResponseEntity<>(
-                ApiResponse.error(e.getCode(), e.getMessage()),
-                status
-        );
+        log.error("设置的 HTTP 状态码: {}, 对应枚举: {}", status.value(), status);
+
+        return ResponseEntity
+                .status(status)
+                .body(ApiResponse.error(e.getCode(), e.getMessage()));
     }
 
     /**
@@ -69,17 +67,23 @@ public class GlobalExceptionHandler {
      * 处理 RuntimeException（用于Token无效/解析失败）
      */
     @ExceptionHandler(RuntimeException.class)
-    @ResponseStatus(HttpStatus.UNAUTHORIZED)
-    public ApiResponse<Void> handleRuntimeException(RuntimeException e) {
+    public ResponseEntity<ApiResponse<Void>> handleRuntimeException(RuntimeException e) {
+        // 如果是Token相关的异常，返回401
         if (e.getMessage() != null &&
                 (e.getMessage().contains("Token") ||
                         e.getMessage().contains("token") ||
                         e.getMessage().contains("JWT"))) {
             log.warn("Token认证失败: {}", e.getMessage());
-            return ApiResponse.error(401, e.getMessage());
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, e.getMessage()));
         }
+
+        // 其他RuntimeException返回500
         log.error("系统异常: ", e);
-        return ApiResponse.error(500, "服务器内部错误");
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(500, "服务器内部错误"));
     }
 
     /**
