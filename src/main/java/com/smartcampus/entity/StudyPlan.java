@@ -37,7 +37,6 @@ public class StudyPlan {
     @Column(name = "plan_type", length = 30)
     private String planType;
 
-    @NotBlank(message = "学科不能为空")
     @Size(max = 100, message = "学科名称不能超过100字符")
     @Column(name = "subject", length = 100)
     private String subject;

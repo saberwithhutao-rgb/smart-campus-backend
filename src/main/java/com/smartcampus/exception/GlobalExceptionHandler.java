@@ -60,7 +60,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ApiResponse<Void> handleIllegalArgumentException(IllegalArgumentException e) {
         log.warn("认证失败: {}", e.getMessage());
-        return ApiResponse.error(401, e.getMessage());
+        return ApiResponse.error(401, "登录过期，请重新登录");
     }
 
     /**
@@ -68,7 +68,6 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiResponse<Void>> handleRuntimeException(RuntimeException e) {
-        // 如果是Token相关的异常，返回401
         if (e.getMessage() != null &&
                 (e.getMessage().contains("Token") ||
                         e.getMessage().contains("token") ||
@@ -76,7 +75,7 @@ public class GlobalExceptionHandler {
             log.warn("Token认证失败: {}", e.getMessage());
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error(401, e.getMessage()));
+                    .body(ApiResponse.error(401, "登录过期，请重新登录"));
         }
 
         // 其他RuntimeException返回500
