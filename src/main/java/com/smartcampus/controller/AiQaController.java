@@ -2,13 +2,16 @@ package com.smartcampus.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartcampus.dto.GenerateReviewAdviceRequest;
 import com.smartcampus.entity.AiConversation;
 import com.smartcampus.entity.LearningFile;
+import com.smartcampus.exception.BusinessException;
 import com.smartcampus.repository.AiConversationRepository;
 import com.smartcampus.repository.LearningFileRepository;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.FileProcessingService;
 import com.smartcampus.service.QianWenService;
+import com.smartcampus.service.ReviewAdviceService;
 import com.smartcampus.service.StudyPlanDetailService;
 import com.smartcampus.utils.JwtUtil;
 import jakarta.annotation.PostConstruct;
@@ -35,6 +38,9 @@ import java.util.concurrent.*;
 @Slf4j
 public class AiQaController {
     private final StudyPlanDetailService studyPlanDetailService;
+
+    @Autowired
+    private ReviewAdviceService reviewAdviceService;
 
     @Autowired
     private JwtUtil jwtUtil;
@@ -1239,6 +1245,46 @@ public class AiQaController {
             log.error("生成学习计划失败", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(Map.of("code", 500, "message", "生成学习计划失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * AI生成复习建议
+     */
+    @PostMapping("/review/advice")
+    public ResponseEntity<?> generateReviewAdvice(
+            @RequestBody GenerateReviewAdviceRequest request,
+            @RequestHeader("Authorization") String authHeader) {
+
+        log.info("🚀 接收生成复习建议请求: {}", request);
+
+        Long userId = validateAndExtractUserId(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("code", 401, "message", "未授权或Token无效"));
+        }
+
+        try {
+            String advice = reviewAdviceService.generateReviewAdvice(
+                    userId,
+                    request.getTaskId(),
+                    request.getTitle(),
+                    request.getReviewStage()
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "code", 200,
+                    "message", "success",
+                    "data", advice
+            ));
+
+        } catch (BusinessException e) {
+            return ResponseEntity.status(e.getCode())
+                    .body(Map.of("code", e.getCode(), "message", e.getMessage()));
+        } catch (Exception e) {
+            log.error("生成复习建议失败", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("code", 500, "message", "生成复习建议失败: " + e.getMessage()));
         }
     }
 }

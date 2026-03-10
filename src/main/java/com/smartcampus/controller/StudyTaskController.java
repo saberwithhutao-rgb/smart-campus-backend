@@ -59,36 +59,6 @@ public class StudyTaskController {
     }
 
     /**
-     * 完成待生产任务（生成复习计划）
-     */
-    @PostMapping("/{id}/generate")
-    public ApiResponse<Void> generateReviewPlan(
-            @RequestHeader("Authorization") String authHeader,
-            @PathVariable Integer id) {
-
-        Integer userId = extractUserId(authHeader);
-        studyTaskService.completeInitialTask(userId, id);
-
-        return ApiResponse.success("复习计划生成成功", null);
-    }
-
-    /**
-     * 批量完成待生产任务（生成复习计划）
-     */
-    @PostMapping("/batch-generate")
-    public ApiResponse<Void> batchGenerateReviewPlans(
-            @RequestHeader("Authorization") String authHeader,
-            @RequestBody List<Integer> taskIds) {
-
-        Integer userId = extractUserId(authHeader);
-        for (Integer taskId : taskIds) {
-            studyTaskService.completeInitialTask(userId, taskId);
-        }
-
-        return ApiResponse.success("批量生成复习计划成功", null);
-    }
-
-    /**
      * 完成普通复习任务
      */
     @PostMapping("/{id}/complete")
@@ -100,6 +70,65 @@ public class StudyTaskController {
         studyTaskService.completeReviewTask(userId, id);
 
         return ApiResponse.success("任务已完成", null);
+    }
+
+    /**
+     * 获取复习任务详情（用于复习详情页）
+     * GET /api/study/tasks/review/{id}
+     */
+    @GetMapping("/review/{id}")
+    public ApiResponse<StudyTask> getReviewTaskDetail(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer id) {
+
+        Integer userId = extractUserId(authHeader);
+        StudyTask task = studyTaskService.getTaskById(userId, id);
+
+        return ApiResponse.success(task);
+    }
+
+    /**
+     * 获取某个学习计划的所有复习任务（历史记录）
+     * GET /api/study/tasks/plan/{planId}/history
+     */
+    @GetMapping("/plan/{planId}/history")
+    public ApiResponse<List<StudyTask>> getReviewTaskHistory(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer planId) {
+
+        Integer userId = extractUserId(authHeader);
+        List<StudyTask> tasks = studyTaskService.getTasksByPlanId(userId, planId);
+
+        return ApiResponse.success(tasks);
+    }
+
+    /**
+     * 更新复习任务内容（AI生成的复习计划）
+     * PUT /api/study/tasks/{id}/content
+     */
+    @PutMapping("/{id}/content")
+    public ApiResponse<StudyTask> updateTaskContent(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer id,
+            @RequestBody String content) {
+
+        Integer userId = extractUserId(authHeader);
+        StudyTask task = studyTaskService.updateTaskContent(userId, id, content);
+
+        return ApiResponse.success("更新成功", task);
+    }
+
+    /**
+     * 获取用户所有复习任务（包括待复习和已完成）
+     */
+    @GetMapping("/all")
+    public ApiResponse<List<StudyTask>> getAllTasks(
+            @RequestHeader("Authorization") String authHeader) {
+
+        Integer userId = extractUserId(authHeader);
+        List<StudyTask> tasks = studyTaskService.getAllTasks(userId);
+
+        return ApiResponse.success(tasks);
     }
 
     /**

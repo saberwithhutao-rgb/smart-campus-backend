@@ -15,7 +15,6 @@ public class CreatePlanRequest {
 
     private String planType;
 
-    @NotBlank(message = "学科不能为空")
     private String subject;
 
     @Pattern(regexp = "easy|medium|hard", message = "难易程度必须是 easy/medium/hard")

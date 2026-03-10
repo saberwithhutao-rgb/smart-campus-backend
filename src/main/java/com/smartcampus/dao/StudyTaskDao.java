@@ -10,6 +10,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface StudyTaskDao extends JpaRepository<StudyTask, Integer> {
@@ -36,4 +37,22 @@ public interface StudyTaskDao extends JpaRepository<StudyTask, Integer> {
     @Transactional
     @Query("UPDATE StudyTask t SET t.status = :status, t.completedAt = CURRENT_TIMESTAMP WHERE t.id = :id")
     int updateStatus(@Param("id") Integer id, @Param("status") String status);
+
+    // 在 StudyTaskDao 接口中添加：
+
+    /**
+     * 根据用户ID查询所有任务，按任务日期倒序
+     */
+    List<StudyTask> findByUserIdOrderByTaskDateDesc(Integer userId);
+
+    /**
+     * 根据计划ID查询所有任务，按复习阶段升序
+     */
+    List<StudyTask> findByPlanIdOrderByReviewStageAsc(Integer planId);
+
+    /**
+     * 根据ID和用户ID查询任务
+     */
+    Optional<StudyTask> findByIdAndUserId(Integer id, Integer userId);
+
 }

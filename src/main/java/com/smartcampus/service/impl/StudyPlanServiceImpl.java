@@ -283,19 +283,19 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         }
 
         plan.setStatus("completed");
-        log.info("计划从未完成变为完成，生成待生产复习任务");
+        log.info("计划从未完成变为完成，直接生成第一次复习任务");
 
-        // ✅ 生成待生产复习任务（不是第一次复习）
+        // ✅ 修改：直接创建第一次复习任务（reviewStage = 1），而不是待生产任务
         CompletableFuture.runAsync(() -> {
             try {
-                studyTaskService.createInitialReviewTask(plan);
-                log.info("待生产复习任务生成成功");
+                // 调用新方法直接创建第一次复习任务
+                studyTaskService.createFirstReviewTaskFromPlan(plan);
+                log.info("第一次复习任务生成成功");
             } catch (Exception e) {
-                log.error("待生产复习任务生成失败", e);
+                log.error("第一次复习任务生成失败", e);
             }
         });
 
-        StudyPlan updatedPlan = studyPlanDao.save(plan);
-        return updatedPlan;
+        return studyPlanDao.save(plan);
     }
 }
