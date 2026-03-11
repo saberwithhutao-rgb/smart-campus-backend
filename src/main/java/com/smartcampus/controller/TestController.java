@@ -1,5 +1,6 @@
 package com.smartcampus.controller;
 
+import com.smartcampus.dto.ApiResponse;
 import com.smartcampus.entity.User;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.EmailService;
@@ -370,7 +371,7 @@ public class TestController {
             String major = getStringValue(request, "major");
             String college = getStringValue(request, "college");
             String grade = getStringValue(request, "grade");
-            Integer gender = getIntegerValue(request, "gender", 0);
+            Integer gender = getIntegerValue(request);
 
             System.out.println("📝 [注册] 收到数据：" + request);
 
@@ -613,24 +614,7 @@ public class TestController {
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
             // ✅ 6. 返回完整的用户信息
-            Map<String, Object> response = new HashMap<>();
-            response.put("code", 200);
-            response.put("message", "登录成功");
-
-            Map<String, Object> data = new HashMap<>();
-            data.put("token", token);
-            data.put("role", user.getRole());
-            data.put("username", user.getUsername());
-            data.put("email", user.getEmail() != null ? user.getEmail() : "");
-            data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
-            data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
-            data.put("major", user.getMajor() != null ? user.getMajor() : "");
-            data.put("college", user.getCollege() != null ? user.getCollege() : "");
-            data.put("grade", user.getGrade() != null ? user.getGrade() : "");
-            data.put("gender", user.getGender());
-            data.put("genderText", user.getGenderText());
-
-            response.put("data", data);
+            Map<String, Object> response = getStringObjectMap(token, user);
 
             return ResponseEntity.ok(response);
 
@@ -638,6 +622,28 @@ public class TestController {
             e.printStackTrace();
             return errorResponse(500, "登录失败：" + e.getMessage());
         }
+    }
+
+    private static Map<String, Object> getStringObjectMap(String token, User user) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "登录成功");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", token);
+        data.put("role", user.getRole());
+        data.put("username", user.getUsername());
+        data.put("email", user.getEmail() != null ? user.getEmail() : "");
+        data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
+        data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
+        data.put("major", user.getMajor() != null ? user.getMajor() : "");
+        data.put("college", user.getCollege() != null ? user.getCollege() : "");
+        data.put("grade", user.getGrade() != null ? user.getGrade() : "");
+        data.put("gender", user.getGender());
+        data.put("genderText", user.getGenderText());
+
+        response.put("data", data);
+        return response;
     }
 
     @GetMapping("/user/profile")
@@ -837,14 +843,14 @@ public class TestController {
         return value != null ? value.toString() : null;
     }
 
-    private Integer getIntegerValue(Map<String, Object> map, String key, Integer defaultValue) {
-        Object value = map.get(key);
-        if (value == null) return defaultValue;
+    private Integer getIntegerValue(Map<String, Object> map) {
+        Object value = map.get("gender");
+        if (value == null) return 0;
         if (value instanceof Integer) return (Integer) value;
         try {
             return Integer.parseInt(value.toString());
         } catch (NumberFormatException e) {
-            return defaultValue;
+            return 0;
         }
     }
 
@@ -854,5 +860,41 @@ public class TestController {
         response.put("message", message);
         response.put("data", null);
         return ResponseEntity.status(code).body(response);
+    }
+
+    @GetMapping("/auth/verify")
+    public ApiResponse<Void> verifyToken(@RequestHeader("Authorization") String authHeader) {
+        // 直接调用你的验证方法，如果抛异常就会被全局异常处理捕获
+        Integer userId = extractUserIdFromToken(authHeader);
+        return ApiResponse.success("Token有效", null);
+    }
+
+    // ==================== 从Token解析userId的核心方法 ====================
+
+    /**
+     * 从Authorization头中提取并解析userId
+     * 没有默认值！token无效直接抛异常！
+     */
+    private Integer extractUserIdFromToken(String authHeader) {
+        // 1. 验证token是否存在
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new IllegalArgumentException("未提供Token或Token格式错误");
+        }
+
+        // 2. 提取token
+        String token = authHeader.substring(7);
+
+        try {
+            // 3. 解析token获取userId
+            Long userIdLong = jwtUtil.getUserIdFromToken(token);
+
+            if (userIdLong == null) {
+                throw new RuntimeException("Token中不存在userId");
+            }
+            return userIdLong.intValue();
+
+        } catch (Exception e) {
+            throw new RuntimeException("无效的Token", e);
+        }
     }
 }

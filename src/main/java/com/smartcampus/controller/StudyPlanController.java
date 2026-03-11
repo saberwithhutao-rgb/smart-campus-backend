@@ -129,13 +129,6 @@ public class StudyPlanController {
         return ApiResponse.success(schedule);
     }
 
-    @GetMapping("/auth/verify")
-    public ApiResponse<Void> verifyToken(@RequestHeader("Authorization") String authHeader) {
-        // 直接调用你的验证方法，如果抛异常就会被全局异常处理捕获
-        Integer userId = extractUserIdFromToken(authHeader);
-        return ApiResponse.success("Token有效", null);
-    }
-
     // ==================== 从Token解析userId的核心方法 ====================
 
     /**
