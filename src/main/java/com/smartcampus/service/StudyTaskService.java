@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
 
 @Slf4j
@@ -200,5 +201,39 @@ public class StudyTaskService {
         task.setCreatedAt(LocalDateTime.now());
 
         studyTaskDao.save(task);
+    }
+
+    public StudyTask getCurrentReviewTask(Integer userId, Integer planId) {
+        // 1. 获取该计划的所有任务
+        List<StudyTask> tasks = studyTaskDao.findByPlanIdOrderByReviewStageAsc(planId);
+
+        if (tasks.isEmpty()) {
+            throw new BusinessException(404, "该计划暂无复习任务");
+        }
+
+        LocalDate today = LocalDate.now();
+
+        // 2. 优先找进行中的（pending + 日期<=今天）
+        StudyTask currentTask = tasks.stream()
+                .filter(t -> "pending".equals(t.getStatus()) && !t.getTaskDate().isAfter(today))
+                .findFirst()
+                .orElse(null);
+
+        // 3. 如果没有进行中的，找已完成的
+        if (currentTask == null) {
+            currentTask = tasks.stream()
+                    .filter(t -> "completed".equals(t.getStatus()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        // 4. 如果还没有，取最新的
+        if (currentTask == null) {
+            currentTask = tasks.stream()
+                    .max(Comparator.comparing(StudyTask::getReviewStage))
+                    .orElse(null);
+        }
+
+        return currentTask;
     }
 }

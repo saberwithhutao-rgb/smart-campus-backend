@@ -76,14 +76,12 @@ public class StudyTaskController {
      * 获取复习任务详情（用于复习详情页）
      * GET /api/study/tasks/review/{id}
      */
-    @GetMapping("/review/{id}")
+    @GetMapping("/review/{planId}")
     public ApiResponse<StudyTask> getReviewTaskDetail(
             @RequestHeader("Authorization") String authHeader,
-            @PathVariable Integer id) {
-
+            @PathVariable Integer planId) {  // 改为 planId
         Integer userId = extractUserId(authHeader);
-        StudyTask task = studyTaskService.getTaskById(userId, id);
-
+        StudyTask task = studyTaskService.getCurrentReviewTask(userId, planId);  // 需要实现这个方法
         return ApiResponse.success(task);
     }
 
