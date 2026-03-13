@@ -260,9 +260,6 @@ public class AiQaController {
                                 saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
                                         fullAnswerText.toString(), finalFileId, isFirstMessage);
 
-                                // 发送结束标记
-                                emitter.send("data: [DONE]\n\n");
-
                                 log.info("流式完成，会话ID: {}, 回答长度: {}", finalSessionId, fullAnswerText.length());
                                 emitter.complete();
 
