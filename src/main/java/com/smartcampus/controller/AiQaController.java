@@ -1215,21 +1215,22 @@ public class AiQaController {
                     .body(Map.of("code", 401, "message", "未授权或Token无效"));
         }
 
+        String title = requestData.get("title");
         String studyPlanIdStr = requestData.get("studyPlanId");
         String subject = requestData.get("subject");
         String duration = requestData.get("duration");
         String level = requestData.get("level");
 
-        if (studyPlanIdStr == null || subject == null || duration == null || level == null) {
+        if (title == null || studyPlanIdStr == null || duration == null || level == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("code", 400, "message", "缺少必要参数: studyPlanId, subject, duration, level"));
+                    .body(Map.of("code", 400, "message", "缺少必要参数: title, studyPlanId, subject, duration, level"));
         }
 
         try {
             Long studyPlanId = Long.parseLong(studyPlanIdStr);
 
             Map<String, Object> serviceResult = studyPlanDetailService.createPlanDetailForUser(
-                    studyPlanId, subject, duration, level
+                    title, studyPlanId, subject, duration, level
             );
 
             return ResponseEntity.ok(Map.of(

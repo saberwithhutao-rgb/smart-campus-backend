@@ -25,11 +25,11 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
 
     @Override
     @Transactional
-    public Map<String, Object> createPlanDetailForUser(Long studyPlanId, String subject, String duration, String level) throws Exception {
-        log.info("开始为学习计划 {} 生成详情: subject={}, duration={}, level={}", studyPlanId, subject, duration, level);
+    public Map<String, Object> createPlanDetailForUser(String title, Long studyPlanId, String subject, String duration, String level) throws Exception {
+        log.info("开始为学习计划 {} 生成详情: title={},  subject={}, duration={}, level={}", title, studyPlanId, subject, duration, level);
 
         // 1. 构建提示词
-        String prompt = buildPrompt(subject, duration, level);
+        String prompt = buildPrompt(title, subject, duration, level);
 
         // 2. 调用AI服务 - 直接获取文本
         String planText = null;
@@ -62,10 +62,11 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
         return result;
     }
 
-    private String buildPrompt(String subject, String duration, String level) {
+    private String buildPrompt(String title, String subject, String duration, String level) {
         return String.format(
                 """
                         请为%s级别的学生制定一份为期%s的'%s'学习计划。
+                        计划名称是'%s'
                         
                         要求：
                         1. 直接输出计划内容，不要任何开场白（如'以下是为您制定的计划'等）
@@ -74,7 +75,7 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
                         4. 计划要详细，包括每天的学习内容、任务和资源
                         
                         现在开始输出计划：""",
-                level, duration, subject
+                level, duration, subject, title
         );
     }
 
