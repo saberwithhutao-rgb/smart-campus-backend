@@ -57,35 +57,41 @@ public class ReviewAdviceService {
      */
     private String buildPrompt(String title, Integer reviewStage) {
         String[] stageDesc = {
-                "第一次复习（1天后）",
-                "第二次复习（3天后）",
-                "第三次复习（7天后）",
-                "第四次复习（15天后）",
-                "第五次复习（30天后）"
+                "第一次复习（1天后）—— 侧重基础概念和框架",
+                "第二次复习（3天后）—— 侧重细节理解和应用",
+                "第三次复习（7天后）—— 侧重细节理解和应用",
+                "第四次复习（15天后）—— 侧重综合运用和拓展",
+                "第五次复习（30天后）—— 侧重综合运用和拓展"
         };
 
         String currentStageDesc = reviewStage <= 5 ? stageDesc[reviewStage - 1] : "第" + reviewStage + "次复习";
 
+        // 计算已完成的阶段
+        int completedStages = reviewStage - 1;
+
         return String.format(
                 """
-                请为"%s"这个学习内容生成一份%s的复习建议。
+                请为计划标题为"%s"的复习任务生成第%d次复习阶段的复习建议。
+                
+                复习任务共5个阶段（基于艾宾浩斯遗忘曲线），该用户已完成前%d次复习，即将进行第%d次复习。
+                第%d次复习的特点是：%s
                 
                 要求：
-                1. 直接输出复习内容，不要任何开场白（如'以下是为您准备的复习建议'等）
-                2. 不要任何结束语（如'希望这些建议对你有帮助'等）
-                3. 直接开始写复习内容，用 Markdown 格式
-                4. 复习建议应包括：
+                1. 直接输出复习内容，不要任何开场白和结束语
+                2. 用 Markdown 格式
+                3. 复习建议应包括：
                    - 核心知识点回顾
                    - 需要重点记忆的内容
                    - 相关练习题或思考题（2-3个）
-                   - 拓展阅读或参考资料（可选）
-                5. 根据不同的复习阶段，内容深度要适当：
-                   - 第1次复习：侧重基础概念和框架
-                   - 第2-3次复习：侧重细节理解和应用
-                   - 第4-5次复习：侧重综合运用和拓展
+                   - 拓展思考题（可选）
                 
                 现在开始输出复习内容：""",
-                title, currentStageDesc
+                title,
+                reviewStage,
+                completedStages,
+                reviewStage,
+                reviewStage,
+                currentStageDesc
         );
     }
 

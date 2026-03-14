@@ -68,7 +68,7 @@ public class StudyTaskService {
         nextTask.setPlanId(currentTask.getPlanId());
         nextTask.setUserId(currentTask.getUserId());
         nextTask.setTitle(currentTask.getTitle());
-        nextTask.setDescription(currentTask.getDescription());
+        nextTask.setDescription(null);
         nextTask.setTaskDate(nextDate);
         nextTask.setScheduledTime(null);
         nextTask.setDurationMinutes(30);
@@ -166,16 +166,6 @@ public class StudyTaskService {
         }
 
         return studyTaskDao.findByPlanIdOrderByReviewStageAsc(planId);
-    }
-
-    /**
-     * 更新任务内容（AI生成的复习计划）
-     */
-    @Transactional
-    public StudyTask updateTaskContent(Integer userId, Integer taskId, String content) {
-        StudyTask task = getTaskById(userId, taskId);
-        task.setDescription(content);
-        return studyTaskDao.save(task);
     }
 
     // StudyTaskService.java

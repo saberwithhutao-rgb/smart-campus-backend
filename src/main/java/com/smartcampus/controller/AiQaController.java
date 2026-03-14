@@ -12,6 +12,7 @@ import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.FileProcessingService;
 import com.smartcampus.service.QianWenService;
 import com.smartcampus.service.ReviewAdviceService;
+import com.smartcampus.service.ReviewSuggestionService;
 import com.smartcampus.service.StudyPlanDetailService;
 import com.smartcampus.utils.JwtUtil;
 import jakarta.annotation.PostConstruct;
@@ -38,6 +39,7 @@ import java.util.concurrent.*;
 @Slf4j
 public class AiQaController {
     private final StudyPlanDetailService studyPlanDetailService;
+    private final ReviewSuggestionService reviewSuggestionService;
 
     @Autowired
     private ReviewAdviceService reviewAdviceService;
@@ -66,10 +68,11 @@ public class AiQaController {
     private ExecutorService executorService;
     private final Map<String, String> taskStatus = new ConcurrentHashMap<>();
 
-    public AiQaController(QianWenService qianWenService, JwtUtil jwtUtil, StudyPlanDetailService studyPlanDetailService) {
+    public AiQaController(QianWenService qianWenService, JwtUtil jwtUtil, StudyPlanDetailService studyPlanDetailService, ReviewSuggestionService reviewSuggestionService) {
         this.qianWenService = qianWenService;
         this.jwtUtil = jwtUtil;
         this.studyPlanDetailService = studyPlanDetailService; // 注入
+        this.reviewSuggestionService = reviewSuggestionService;
     }
 
     @PostConstruct
@@ -1268,6 +1271,12 @@ public class AiQaController {
                     request.getTaskId(),
                     request.getTitle(),
                     request.getReviewStage()
+            );
+
+            reviewSuggestionService.createSuggestion(
+                    userId.intValue(),
+                    request.getTaskId().intValue(),
+                    advice
             );
 
             return ResponseEntity.ok(Map.of(

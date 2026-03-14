@@ -1,7 +1,10 @@
 package com.smartcampus.controller;
 
 import com.smartcampus.dto.ApiResponse;
+import com.smartcampus.entity.ReviewSuggestion;
 import com.smartcampus.entity.StudyTask;
+import com.smartcampus.service.StudyPlanService;
+import com.smartcampus.service.ReviewSuggestionService;
 import com.smartcampus.service.StudyTaskService;
 import com.smartcampus.utils.JwtUtil;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +21,9 @@ public class StudyTaskController {
 
     private final StudyTaskService studyTaskService;
     private final JwtUtil jwtUtil;
+
+    private final ReviewSuggestionService reviewSuggestionService;  // 注入 ReviewSuggestionService
+    private final StudyPlanService studyPlanService;  // 注入 StudyPlanService
 
     /**
      * 获取待复习任务列表
@@ -105,15 +111,16 @@ public class StudyTaskController {
      * PUT /api/study/tasks/{id}/content
      */
     @PutMapping("/{id}/content")
-    public ApiResponse<StudyTask> updateTaskContent(
+    public ApiResponse<ReviewSuggestion> updateTaskContent(
+            // 返回类型改为 ReviewSuggestion
             @RequestHeader("Authorization") String authHeader,
             @PathVariable Integer id,
             @RequestBody String content) {
 
         Integer userId = extractUserId(authHeader);
-        StudyTask task = studyTaskService.updateTaskContent(userId, id, content);
+        ReviewSuggestion suggestion = reviewSuggestionService.createSuggestion(userId, id, content);
 
-        return ApiResponse.success("更新成功", task);
+        return ApiResponse.success("生成成功", suggestion);
     }
 
     /**
@@ -129,6 +136,38 @@ public class StudyTaskController {
         return ApiResponse.success(tasks);
     }
 
+    @PostMapping("/{taskId}/suggestions")
+    public ApiResponse<ReviewSuggestion> createSuggestion(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer taskId,
+            @RequestBody String content) {
+
+        Integer userId = extractUserId(authHeader);
+        ReviewSuggestion suggestion = reviewSuggestionService.createSuggestion(userId, taskId, content);
+        return ApiResponse.success(suggestion);
+    }
+
+    @GetMapping("/{taskId}/suggestions")
+    public ApiResponse<List<ReviewSuggestion>> getTaskSuggestions(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer taskId) {
+
+        Integer userId = extractUserId(authHeader);
+        studyTaskService.getTaskById(userId, taskId);
+        List<ReviewSuggestion> suggestions = reviewSuggestionService.getTaskSuggestions(taskId);
+        return ApiResponse.success(suggestions);
+    }
+
+    @GetMapping("/plan/{planId}/suggestions")
+    public ApiResponse<List<ReviewSuggestion>> getPlanSuggestions(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer planId) {
+
+        Integer userId = extractUserId(authHeader);
+        List<ReviewSuggestion> suggestions = reviewSuggestionService.getPlanSuggestions(planId);
+        return ApiResponse.success(suggestions);
+    }
+
     /**
      * 从Token解析userId
      */
@@ -139,4 +178,5 @@ public class StudyTaskController {
         String token = authHeader.substring(7);
         return jwtUtil.getUserIdFromToken(token).intValue();
     }
+
 }
