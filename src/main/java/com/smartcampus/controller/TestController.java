@@ -648,22 +648,9 @@ public class TestController {
 
     @GetMapping("/user/profile")
     public ResponseEntity<?> getUserProfile(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return errorResponse(401, "未授权，请先登录");
-        }
-
         try {
-            String token = authHeader.substring(7);
-            if (!token.startsWith("jwt-")) {
-                return errorResponse(401, "Token格式错误");
-            }
+            Integer userId = extractUserIdFromToken(authHeader);
 
-            String[] parts = token.split("-");
-            if (parts.length < 2) {
-                return errorResponse(401, "Token格式错误");
-            }
-
-            Integer userId = Integer.parseInt(parts[1]);
             Optional<User> userOptional = userRepository.findById(userId);
 
             if (userOptional.isEmpty()) {
@@ -679,6 +666,12 @@ public class TestController {
 
             return ResponseEntity.ok(response);
 
+        } catch (IllegalArgumentException e) {
+            // token 格式错误
+            return errorResponse(401, e.getMessage());
+        } catch (RuntimeException e) {
+            // token 无效
+            return errorResponse(401, "Token无效");
         } catch (Exception e) {
             e.printStackTrace();
             return errorResponse(500, "获取用户信息失败");
