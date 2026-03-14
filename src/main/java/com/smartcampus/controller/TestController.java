@@ -12,11 +12,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -890,4 +893,133 @@ public class TestController {
             throw new RuntimeException("无效的Token", e);
         }
     }
+
+    @PutMapping("/user/basic-info")
+    public ResponseEntity<?> updateUserBasicInfo(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestBody Map<String, Object> request) {
+        try {
+            // 解析token获取用户ID
+            Integer userId = extractUserIdFromToken(authHeader);
+
+            Optional<User> userOptional = userRepository.findById(userId);
+            if (userOptional.isEmpty()) {
+                return errorResponse(404, "用户不存在");
+            }
+
+            User user = userOptional.get();
+
+            // 更新字段（只更新允许修改的字段）
+            if (request.containsKey("gender")) {
+                user.setGender((Integer) request.get("gender"));
+            }
+            if (request.containsKey("studentId")) {
+                user.setStudentId((String) request.get("studentId"));
+            }
+            if (request.containsKey("major")) {
+                user.setMajor((String) request.get("major"));
+            }
+            if (request.containsKey("college")) {
+                user.setCollege((String) request.get("college"));
+            }
+            if (request.containsKey("grade")) {
+                user.setGrade((String) request.get("grade"));
+            }
+
+            // 保存更新
+            userRepository.save(user);
+
+            // 返回更新后的用户信息
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "资料更新成功");
+            response.put("data", user);
+
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException e) {
+            return errorResponse(401, e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return errorResponse(500, "更新失败：" + e.getMessage());
+        }
+    }
+
+    @PostMapping("/user/avatar")
+    public ResponseEntity<?> updateUserAvatar(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam("avatar") MultipartFile file) {
+        try {
+            // 解析token获取用户ID
+            Integer userId = extractUserIdFromToken(authHeader);
+
+            Optional<User> userOptional = userRepository.findById(userId);
+            if (userOptional.isEmpty()) {
+                return errorResponse(404, "用户不存在");
+            }
+
+            User user = userOptional.get();
+
+            // 验证文件
+            if (file.isEmpty()) {
+                return errorResponse(400, "请选择要上传的文件");
+            }
+
+            // 验证文件类型
+            String contentType = file.getContentType();
+            if (contentType == null || !contentType.startsWith("image/")) {
+                return errorResponse(400, "只能上传图片文件");
+            }
+
+            // 验证文件大小（2MB）
+            if (file.getSize() > 2 * 1024 * 1024) {
+                return errorResponse(400, "图片大小不能超过2MB");
+            }
+
+            // 生成文件名
+            String originalFilename = file.getOriginalFilename();
+            String extension = originalFilename != null ?
+                    originalFilename.substring(originalFilename.lastIndexOf(".")) : ".jpg";
+            String fileName = "avatar_" + userId + "_" + System.currentTimeMillis() + extension;
+
+            // 存储路径
+            String uploadDir = "/opt/smart-campus/uploads/avatars/";
+            File dir = new File(uploadDir);
+            if (!dir.exists()) {
+                dir.mkdirs();
+            }
+
+            // 保存文件
+            File destFile = new File(uploadDir + fileName);
+            file.transferTo(destFile);
+
+            // 生成访问URL
+            String avatarUrl = "/api/uploads/avatars/" + fileName;
+
+            // ✅ 更新到数据库
+            user.setAvatarUrl(avatarUrl);
+            userRepository.save(user);  // 这里会保存到数据库
+
+            // 返回结果
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "头像上传成功");
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("avatarUrl", avatarUrl);
+            response.put("data", data);
+
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalArgumentException e) {
+            return errorResponse(401, e.getMessage());
+        } catch (IOException e) {
+            e.printStackTrace();
+            return errorResponse(500, "文件上传失败：" + e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return errorResponse(500, "头像更新失败：" + e.getMessage());
+        }
+    }
+
 }
