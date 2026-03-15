@@ -26,17 +26,17 @@ public class JwtUtil {
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    // 生成token
+    // ✅ 修改：生成token - 将 userId 放在 subject 中
     public String generateToken(Long userId, String username, String role) {
         Map<String, Object> claims = new HashMap<>();
-        claims.put("userId", userId);
-        claims.put("username", username);
+        claims.put("username", username);  // 其他信息放 claims
         claims.put("role", role);
 
         return Jwts.builder()
-                .claims(claims)
-                .issuedAt(new Date())
-                .expiration(new Date(System.currentTimeMillis() + expiration))
+                .setClaims(claims)
+                .setSubject(userId.toString())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
@@ -50,10 +50,9 @@ public class JwtUtil {
                 .getPayload();
     }
 
-    // 从token获取用户ID
     public Long getUserIdFromToken(String token) {
         Claims claims = parseToken(token);
-        return claims.get("userId", Long.class);
+        return Long.parseLong(claims.getSubject());
     }
 
     // 验证token
