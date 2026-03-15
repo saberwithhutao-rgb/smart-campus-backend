@@ -7,8 +7,10 @@ import com.smartcampus.service.StudyPlanService;
 import com.smartcampus.service.ReviewSuggestionService;
 import com.smartcampus.service.StudyTaskService;
 import com.smartcampus.utils.JwtUtil;
+import com.smartcampus.vo.StudyTaskVO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -82,13 +84,25 @@ public class StudyTaskController {
      * 获取复习任务详情（用于复习详情页）
      * GET /api/study/tasks/review/{id}
      */
-    @GetMapping("/review/{planId}")
-    public ApiResponse<StudyTask> getReviewTaskDetail(
+    @GetMapping("/review/{taskId}")
+    public ApiResponse<StudyTaskVO> getReviewTaskDetail(
             @RequestHeader("Authorization") String authHeader,
-            @PathVariable Integer planId) {  // 改为 planId
+            @PathVariable Integer taskId) {
+
         Integer userId = extractUserId(authHeader);
-        StudyTask task = studyTaskService.getCurrentReviewTask(userId, planId);  // 需要实现这个方法
-        return ApiResponse.success(task);
+
+        // 1. 获取任务
+        StudyTask task = studyTaskService.getTaskById(userId, taskId);
+
+        // 2. 获取当前建议
+        ReviewSuggestion suggestion = reviewSuggestionService.getCurrentSuggestion(taskId);
+
+        // 3. 组装 VO（包含任务和建议）
+        StudyTaskVO vo = new StudyTaskVO();
+        BeanUtils.copyProperties(task, vo);
+        vo.setCurrentSuggestion(suggestion);
+
+        return ApiResponse.success(vo);
     }
 
     /**
