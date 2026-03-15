@@ -84,20 +84,19 @@ public class StudyTaskController {
      * 获取复习任务详情（用于复习详情页）
      * GET /api/study/tasks/review/{id}
      */
-    @GetMapping("/review/{taskId}")
+    @GetMapping("/review/{planId}")  // 保持用 planId
     public ApiResponse<StudyTaskVO> getReviewTaskDetail(
             @RequestHeader("Authorization") String authHeader,
-            @PathVariable Integer taskId) {
+            @PathVariable Integer planId) {  // 参数名保持 planId
 
         Integer userId = extractUserId(authHeader);
 
-        // 1. 获取任务
-        StudyTask task = studyTaskService.getTaskById(userId, taskId);
+        // 通过 planId 获取当前复习任务
+        StudyTask task = studyTaskService.getCurrentReviewTask(userId, planId);
 
-        // 2. 获取当前建议
-        ReviewSuggestion suggestion = reviewSuggestionService.getCurrentSuggestion(taskId);
+        // 获取当前建议
+        ReviewSuggestion suggestion = reviewSuggestionService.getCurrentSuggestion(task.getId());
 
-        // 3. 组装 VO（包含任务和建议）
         StudyTaskVO vo = new StudyTaskVO();
         BeanUtils.copyProperties(task, vo);
         vo.setCurrentSuggestion(suggestion);
