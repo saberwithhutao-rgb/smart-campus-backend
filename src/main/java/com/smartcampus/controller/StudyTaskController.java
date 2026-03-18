@@ -182,6 +182,30 @@ public class StudyTaskController {
     }
 
     /**
+     * 获取任务的最新复习建议
+     * GET /api/study/tasks/{taskId}/suggestions/current
+     */
+    @GetMapping("/{taskId}/suggestions/current")
+    public ApiResponse<ReviewSuggestion> getCurrentSuggestion(
+            @RequestHeader("Authorization") String authHeader,
+            @PathVariable Integer taskId) {
+
+        Integer userId = extractUserId(authHeader);
+
+        // 验证任务所有权
+        studyTaskService.getTaskById(userId, taskId);
+
+        // 获取最新建议
+        ReviewSuggestion suggestion = reviewSuggestionService.getCurrentSuggestion(taskId);
+
+        if (suggestion == null) {
+            return ApiResponse.success(null); // 返回 null，前端显示"暂无建议"
+        }
+
+        return ApiResponse.success(suggestion);
+    }
+
+    /**
      * 从Token解析userId
      */
     private Integer extractUserId(String authHeader) {

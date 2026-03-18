@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.List;
@@ -53,7 +54,7 @@ public class QianWenService {
     }
 
     /**
-     * 流式调用 - 直接返回通义千问原生流式响应
+     * 流式调用 - 直接返回通义千问原生流式响应（带重试）
      * 返回格式：data: {"output":{"text":"xxx","finish_reason":null}}
      */
     public Flux<String> askQuestionStream(String question, List<String> contexts, String model) {
@@ -81,7 +82,30 @@ public class QianWenService {
                 .doOnNext(chunk -> log.debug("收到原始流式数据: {}", chunk))
                 .doOnComplete(() -> log.info("通义千问流式调用完成"))
                 .doOnError(error -> log.error("通义千问流式调用失败", error))
-                .timeout(Duration.ofSeconds(90));
+                .timeout(Duration.ofSeconds(90))
+                // 添加重试逻辑
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(1))
+                        .maxBackoff(Duration.ofSeconds(5))
+                        .filter(throwable -> {
+                            boolean shouldRetry = throwable.getMessage() != null &&
+                                    (throwable.getMessage().contains("Connection reset") ||
+                                            throwable.getMessage().contains("connection reset") ||
+                                            throwable.getMessage().contains("reset by peer"));
+                            if (shouldRetry) {
+                                log.warn("检测到连接重置，准备重试: {}", throwable.getMessage());
+                            }
+                            return shouldRetry;
+                        })
+                        .doBeforeRetry(retrySignal ->
+                                log.info("第 {} 次重试, 原因: {}",
+                                        retrySignal.totalRetries() + 1,
+                                        retrySignal.failure().getMessage())
+                        )
+                        .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -> {
+                            log.error("重试次数耗尽，最终失败", retrySignal.failure());
+                            return retrySignal.failure();
+                        })
+                );
     }
 
     /**

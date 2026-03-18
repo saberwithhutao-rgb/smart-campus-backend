@@ -213,6 +213,7 @@ public class AiQaController {
         final String finalSessionId = sessionId;
         final Long finalUserId = userId;
         final String finalQuestion = question;
+        final int maxRetries = 3;
 
         // 2. 异步线程中处理 AI 请求
         executorService.submit(() -> {
@@ -1223,7 +1224,7 @@ public class AiQaController {
 
         if (title == null || studyPlanIdStr == null || duration == null || level == null) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("code", 400, "message", "缺少必要参数: title, studyPlanId, subject, duration, level"));
+                    .body(Map.of("code", 400, "message", "缺少必要参数: title, studyPlanId, duration, level"));
         }
 
         try {
