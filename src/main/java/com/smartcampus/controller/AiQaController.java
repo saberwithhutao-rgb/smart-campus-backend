@@ -240,16 +240,18 @@ public class AiQaController {
                 qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
                         .doOnNext(chunk -> {
                             try {
-                                log.debug("收到 chunk: {}", chunk);
+                                log.info(">>> 收到 chunk: '{}'", chunk);
 
-                                // 从chunk中提取纯文本内容并累积（用于保存到数据库）
                                 String textChunk = extractTextFromChunk(chunk);
+                                log.info(">>> extractTextFromChunk 返回: '{}'", textChunk);
+
                                 if (textChunk != null && !textChunk.isEmpty()) {
                                     fullAnswerText.append(textChunk);
+                                    log.info(">>> 当前累积文本长度: {}", fullAnswerText.length());
                                 }
 
-                                // 原样发送给前端
                                 emitter.send(chunk);
+                                log.info(">>> chunk 已发送给前端");
 
                             } catch (IOException e) {
                                 log.error("发送SSE数据失败", e);
@@ -257,16 +259,15 @@ public class AiQaController {
                             }
                         })
                         .doOnComplete(() -> {
-                            try {
-                                log.info("流式完成，累积的纯文本长度: {}", fullAnswerText.length());
+                            log.info("========== 流式完成 ==========");
+                            log.info("最终累积文本: '{}'", fullAnswerText.toString());
+                            log.info("最终文本长度: {}", fullAnswerText.length());
 
-                                // 保存对话记录到数据库
+                            try {
                                 saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
                                         fullAnswerText.toString(), finalFileId, isFirstMessage);
-
-                                log.info("流式完成，会话ID: {}, 回答长度: {}", finalSessionId, fullAnswerText.length());
+                                log.info("对话记录保存成功");
                                 emitter.complete();
-
                             } catch (Exception e) {
                                 log.error("保存对话记录失败", e);
                                 emitter.complete();
@@ -309,60 +310,67 @@ public class AiQaController {
      * 从chunk中提取纯文本内容
      */
     private String extractTextFromChunk(String chunk) {
+        log.info("========== extractTextFromChunk 开始 ==========");
+        log.info("原始 chunk: '{}'", chunk);
+
         if (chunk == null || chunk.isEmpty()) {
+            log.info("chunk 为空，返回空字符串");
             return "";
         }
 
         try {
             // 情况1：如果是标准SSE格式（带data:前缀）
             if (chunk.startsWith("data: ")) {
+                log.info("检测到 data: 前缀");
                 String jsonStr = chunk.substring(6).trim();
+                log.info("提取的 jsonStr: '{}'", jsonStr);
 
-                // 如果是结束标记，返回空字符串
+                // 如果是结束标记
                 if (jsonStr.equals("[DONE]")) {
+                    log.info("检测到 [DONE] 结束标记，返回空字符串");
                     return "";
                 }
 
                 // 解析JSON
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode root = mapper.readTree(jsonStr);
+                try {
+                    ObjectMapper mapper = new ObjectMapper();
+                    JsonNode root = mapper.readTree(jsonStr);
+                    log.info("解析JSON成功: {}", root);
 
-                // 提取content字段
-                JsonNode choices = root.path("choices");
-                if (choices.isArray() && !choices.isEmpty()) {
-                    JsonNode delta = choices.get(0).path("delta");
-                    if (delta.has("content")) {
-                        return delta.path("content").asText();
+                    JsonNode choices = root.path("choices");
+                    log.info("choices 节点: {}", choices);
+
+                    if (choices.isArray() && !choices.isEmpty()) {
+                        JsonNode delta = choices.get(0).path("delta");
+                        log.info("delta 节点: {}", delta);
+
+                        if (delta.has("content")) {
+                            String content = delta.path("content").asText();
+                            log.info("提取到 content: '{}'", content);
+                            return content;
+                        } else {
+                            log.info("delta 节点没有 content 字段");
+                        }
+                    } else {
+                        log.info("choices 为空或不是数组");
                     }
+                } catch (Exception e) {
+                    log.error("JSON解析失败", e);
+                    return "";
                 }
             }
-
-            // 情况2：如果是纯JSON（没有data:前缀）
-            else if (chunk.trim().startsWith("{")) {
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode root = mapper.readTree(chunk);
-
-                // 提取content字段
-                JsonNode choices = root.path("choices");
-                if (choices.isArray() && !choices.isEmpty()) {
-                    JsonNode delta = choices.get(0).path("delta");
-                    if (delta.has("content")) {
-                        return delta.path("content").asText();
-                    }
-                }
-            }
-
-            // 情况3：如果是纯文本，直接返回
+            // 情况2：如果是纯文本
             else {
+                log.info("不是 data: 格式，可能是纯文本: '{}'", chunk);
                 return chunk;
             }
 
         } catch (Exception e) {
-            log.debug("解析chunk失败: {}, 错误: {}", chunk, e.getMessage());
-            // 解析失败时，假设是纯文本，直接返回
-            return chunk;
+            log.error("extractTextFromChunk 异常", e);
+            return "";
         }
 
+        log.info("没有匹配任何条件，返回空字符串");
         return "";
     }
 
