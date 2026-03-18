@@ -318,59 +318,43 @@ public class AiQaController {
             return "";
         }
 
-        try {
-            // 情况1：如果是标准SSE格式（带data:前缀）
-            if (chunk.startsWith("data: ")) {
-                log.info("检测到 data: 前缀");
-                String jsonStr = chunk.substring(6).trim();
-                log.info("提取的 jsonStr: '{}'", jsonStr);
-
-                // 如果是结束标记
-                if (jsonStr.equals("[DONE]")) {
-                    log.info("检测到 [DONE] 结束标记，返回空字符串");
-                    return "";
-                }
-
-                // 解析JSON
-                try {
-                    ObjectMapper mapper = new ObjectMapper();
-                    JsonNode root = mapper.readTree(jsonStr);
-                    log.info("解析JSON成功: {}", root);
-
-                    JsonNode choices = root.path("choices");
-                    log.info("choices 节点: {}", choices);
-
-                    if (choices.isArray() && !choices.isEmpty()) {
-                        JsonNode delta = choices.get(0).path("delta");
-                        log.info("delta 节点: {}", delta);
-
-                        if (delta.has("content")) {
-                            String content = delta.path("content").asText();
-                            log.info("提取到 content: '{}'", content);
-                            return content;
-                        } else {
-                            log.info("delta 节点没有 content 字段");
-                        }
-                    } else {
-                        log.info("choices 为空或不是数组");
-                    }
-                } catch (Exception e) {
-                    log.error("JSON解析失败", e);
-                    return "";
-                }
-            }
-            // 情况2：如果是纯文本
-            else {
-                log.info("不是 data: 格式，可能是纯文本: '{}'", chunk);
-                return chunk;
-            }
-
-        } catch (Exception e) {
-            log.error("extractTextFromChunk 异常", e);
+        // 情况1：如果是结束标记 [DONE]
+        if (chunk.equals("[DONE]")) {
+            log.info("检测到 [DONE] 结束标记，返回空字符串");
             return "";
         }
 
-        log.info("没有匹配任何条件，返回空字符串");
+        // 情况2：尝试解析 JSON
+        log.info("尝试解析 JSON...");
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode root = mapper.readTree(chunk);
+            log.info("JSON 解析成功: {}", root);
+
+            JsonNode choices = root.path("choices");
+            log.info("choices 节点: {}", choices);
+
+            if (choices.isArray() && !choices.isEmpty()) {
+                log.info("choices 数组长度: {}", choices.size());
+
+                JsonNode delta = choices.get(0).path("delta");
+                log.info("delta 节点: {}", delta);
+
+                if (delta.has("content")) {
+                    String content = delta.path("content").asText();
+                    log.info("提取到 content: '{}'", content);
+                    return content;
+                } else {
+                    log.info("delta 节点没有 content 字段");
+                }
+            } else {
+                log.info("choices 为空或不是数组");
+            }
+        } catch (Exception e) {
+            log.error("JSON 解析失败", e);
+        }
+
+        log.info("没有提取到内容，返回空字符串");
         return "";
     }
 
