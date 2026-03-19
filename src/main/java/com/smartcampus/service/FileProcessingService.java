@@ -113,6 +113,7 @@ public class FileProcessingService {
      */
     public String extractTextFromFileByPath(String filePath) {
         File file = new File(filePath);
+        log.info("开始解析 DOCX 文件，大小: {} MB", file.length() / (1024*1024));
         if (!file.exists()) {
             throw new RuntimeException("文件不存在: " + filePath);
         }
@@ -142,10 +143,18 @@ public class FileProcessingService {
     }
 
     private String extractTextFromDocxFile(File file) throws IOException {
+        log.info("开始解析 DOCX 文件，大小: {} MB", file.length() / (1024*1024));
+        long start = System.currentTimeMillis();
+
         try (FileInputStream fis = new FileInputStream(file);
              XWPFDocument doc = new XWPFDocument(fis)) {
+            log.info("XWPFDocument 加载完成，耗时: {} ms", System.currentTimeMillis() - start);
+
             XWPFWordExtractor extractor = new XWPFWordExtractor(doc);
-            return extractor.getText();
+            String text = extractor.getText();
+            log.info("文本提取完成，长度: {}，耗时: {} ms",
+                    text.length(), System.currentTimeMillis() - start);
+            return text;
         }
     }
 

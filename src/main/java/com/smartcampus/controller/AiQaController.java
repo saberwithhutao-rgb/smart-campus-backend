@@ -266,6 +266,11 @@ public class AiQaController {
                 // 用于累积纯文本（保存到数据库用）
                 StringBuilder fullAnswerText = new StringBuilder();
 
+                if (qianWenService == null) {
+                    log.error("❌ qianWenService 为 null！");
+                    return;
+                }
+
                 // 调用通义千问流式API
                 qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
                         .doOnNext(chunk -> {
