@@ -47,10 +47,8 @@ public class QianWenService {
                 .bodyToMono(String.class)
                 .map(this::parseNonStreamResponse)
                 .timeout(Duration.ofSeconds(90))
-                .onErrorResume(e -> {
-                    log.error("调用通义千问API失败: {}", e.getMessage());
-                    return Mono.just("抱歉，AI服务暂时不可用。");
-                });
+                .doOnError(e -> log.error("调用通义千问API失败: {}", e.getMessage()));
+
     }
 
     /**
@@ -58,6 +56,8 @@ public class QianWenService {
      * 返回格式：data: {"output":{"text":"xxx","finish_reason":null}}
      */
     public Flux<String> askQuestionStream(String question, List<String> contexts, String model) {
+        log.info("🔥 askQuestionStream 开始调用，question长度: {}", question.length());
+
         List<Map<String, String>> messages = List.of(
                 Map.of("role", "system", "content", buildSystemPrompt()),
                 Map.of("role", "user", "content", buildUserPrompt(question, contexts))
@@ -73,13 +73,13 @@ public class QianWenService {
                 "incremental_output", true  // 只返回增量内容
         );
 
-        log.info("通义千问流式调用开始");
+        log.info("请求体构建完成，model: {}", model);
 
         return qianwenWebClient.post()
                 .bodyValue(requestBody)
                 .retrieve()
                 .bodyToFlux(String.class)
-                .doOnNext(chunk -> log.debug("收到原始流式数据: {}", chunk))
+                .doOnNext(chunk -> log.info("收到原始流式数据: {}", chunk))
                 .doOnComplete(() -> log.info("通义千问流式调用完成"))
                 .doOnError(error -> log.error("通义千问流式调用失败", error))
                 .timeout(Duration.ofSeconds(90))

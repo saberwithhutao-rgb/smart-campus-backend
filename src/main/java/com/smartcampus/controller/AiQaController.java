@@ -101,7 +101,7 @@ public class AiQaController {
     /**
      * 统一智能问答接口 - 支持流式/非流式，支持文件上传
      */
-    @PostMapping(value = "/chat",
+    @PostMapping(value = "/chat/send",
             consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
             produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
     public Object chatWithAi(
@@ -161,7 +161,25 @@ public class AiQaController {
         // 设置超时回调
         emitter.onTimeout(() -> {
             log.warn("SSE连接超时，会话ID: {}", sessionId);
-            emitter.complete();
+            try {
+                // 发送一个明确的超时事件
+                Map<String, Object> timeoutEvent = Map.of(
+                        "type", "timeout",
+                        "message", "处理超时，文件可能过大或系统繁忙",
+                        "code", 408
+                );
+
+                // 使用自定义事件名，方便前端区分
+                emitter.send(SseEmitter.event()
+                        .name("error")
+                        .data(timeoutEvent)
+                );
+
+            } catch (IOException e) {
+                log.error("发送超时消息失败", e);
+            } finally {
+                emitter.complete();
+            }
         });
 
         // 设置错误回调
@@ -220,10 +238,20 @@ public class AiQaController {
             try {
                 String enhancedQuestion = question;
 
+                long startTime = System.currentTimeMillis();
+                log.info("🔥 异步线程开始执行，时间戳: {}", startTime);
+
+                log.info("🔥 异步线程开始执行，sessionId: {}", finalSessionId);
+
                 // 如果有文件，从保存的文件路径读取内容
                 if (finalSavedFilePath != null) {
+                    log.info("📄 开始提取文件内容，路径: {}", finalSavedFilePath);
                     // 调用 FileProcessingService 的新方法，从文件路径读取
                     String fileContent = fileProcessingService.extractTextFromFileByPath(finalSavedFilePath);
+
+                    log.info("✅ 文件提取完成，内容长度: {}", fileContent.length());
+                    long fileEnd = System.currentTimeMillis();
+                    log.info("✅ 文件提取完成，耗时: {} ms，内容长度: {}", (fileEnd - startTime), fileContent.length());
 
                     // 限制文件内容长度，避免提示词过长
                     if (fileContent.length() > 2000) {
@@ -233,25 +261,23 @@ public class AiQaController {
                     enhancedQuestion = question + "\n\n参考文件内容：\n" + fileContent;
                 }
 
+                log.info("🤖 准备调用 AI 服务，问题长度: {}", enhancedQuestion.length());
+
                 // 用于累积纯文本（保存到数据库用）
                 StringBuilder fullAnswerText = new StringBuilder();
 
                 // 调用通义千问流式API
                 qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
                         .doOnNext(chunk -> {
+                            log.info("📦 收到 AI chunk: {}", chunk.substring(0, Math.min(50, chunk.length())));
                             try {
-                                log.info(">>> 收到 chunk: '{}'", chunk);
-
                                 String textChunk = extractTextFromChunk(chunk);
-                                log.info(">>> extractTextFromChunk 返回: '{}'", textChunk);
 
                                 if (textChunk != null && !textChunk.isEmpty()) {
                                     fullAnswerText.append(textChunk);
-                                    log.info(">>> 当前累积文本长度: {}", fullAnswerText.length());
                                 }
 
                                 emitter.send(chunk);
-                                log.info(">>> chunk 已发送给前端");
 
                             } catch (IOException e) {
                                 log.error("发送SSE数据失败", e);
@@ -260,13 +286,10 @@ public class AiQaController {
                         })
                         .doOnComplete(() -> {
                             log.info("========== 流式完成 ==========");
-                            log.info("最终累积文本: '{}'", fullAnswerText.toString());
-                            log.info("最终文本长度: {}", fullAnswerText.length());
 
                             try {
                                 saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
                                         fullAnswerText.toString(), finalFileId, isFirstMessage);
-                                log.info("对话记录保存成功");
                                 emitter.complete();
                             } catch (Exception e) {
                                 log.error("保存对话记录失败", e);
@@ -314,35 +337,26 @@ public class AiQaController {
         log.info("原始 chunk: '{}'", chunk);
 
         if (chunk == null || chunk.isEmpty()) {
-            log.info("chunk 为空，返回空字符串");
             return "";
         }
 
         // 情况1：如果是结束标记 [DONE]
         if (chunk.equals("[DONE]")) {
-            log.info("检测到 [DONE] 结束标记，返回空字符串");
             return "";
         }
-
         // 情况2：尝试解析 JSON
-        log.info("尝试解析 JSON...");
         try {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(chunk);
-            log.info("JSON 解析成功: {}", root);
 
             JsonNode choices = root.path("choices");
-            log.info("choices 节点: {}", choices);
 
             if (choices.isArray() && !choices.isEmpty()) {
-                log.info("choices 数组长度: {}", choices.size());
 
                 JsonNode delta = choices.get(0).path("delta");
-                log.info("delta 节点: {}", delta);
 
                 if (delta.has("content")) {
                     String content = delta.path("content").asText();
-                    log.info("提取到 content: '{}'", content);
                     return content;
                 } else {
                     log.info("delta 节点没有 content 字段");

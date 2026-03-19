@@ -27,7 +27,7 @@ public class StudyPlanController {
      */
     @GetMapping("/plans")
     public ApiResponse<PageResult<StudyPlan>> getPlans(
-            @RequestHeader("Authorization") String authHeader,  // ✅ required = true，必须带token！
+            @RequestHeader("Authorization") String authHeader,
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer size,
             @RequestParam(required = false) String status,
