@@ -719,7 +719,6 @@ public class AiQaController {
             List<AiConversation> conversations = aiConversationRepository
                     .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
 
-            // 如果没有找到记录，可以提前返回
             if (conversations.isEmpty()) {
                 return ResponseEntity.ok(Map.of(
                         "code", 200,
@@ -728,7 +727,7 @@ public class AiQaController {
                 ));
             }
 
-            // 转换为前端需要的格式
+            // 转换为前端需要的格式，包含文件信息
             List<Map<String, Object>> history = new ArrayList<>();
             for (AiConversation conv : conversations) {
                 Map<String, Object> item = new HashMap<>();
@@ -743,6 +742,22 @@ public class AiQaController {
                 item.put("tokenUsage", conv.getTokenUsage());
                 item.put("createdAt", conv.getCreatedAt());
                 item.put("rating", conv.getRating());
+
+                if (conv.getFileId() != null) {
+                    Optional<LearningFile> fileOpt = learningFileRepository.findById(conv.getFileId());
+                    if (fileOpt.isPresent()) {
+                        LearningFile file = fileOpt.get();
+                        Map<String, Object> fileInfo = new HashMap<>();
+                        fileInfo.put("id", file.getId());
+                        fileInfo.put("fileName", file.getFileName());
+                        fileInfo.put("originalName", file.getOriginalName());
+                        fileInfo.put("fileType", file.getFileType());
+                        fileInfo.put("fileSize", file.getFileSize());
+                        fileInfo.put("uploadTime", file.getUploadTime());
+                        item.put("file", fileInfo);
+                    }
+                }
+
                 history.add(item);
             }
 
