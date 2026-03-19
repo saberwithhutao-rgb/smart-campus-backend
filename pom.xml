@@ -28,16 +28,6 @@
             <artifactId>log4j-api</artifactId>
             <version>2.20.0</version>
         </dependency>
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi-ooxml</artifactId>
-            <version>5.4.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.poi</groupId>
-            <artifactId>poi</artifactId>
-            <version>5.4.0</version>
-        </dependency>
 
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -78,15 +68,6 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
-
-        <!-- ❌ 删除 hibernate-types-60 依赖 -->
-        <!--
-        <dependency>
-            <groupId>com.vladmihalcea</groupId>
-            <artifactId>hibernate-types-60</artifactId>
-            <version>${hibernate-types.version}</version>
-        </dependency>
-        -->
 
         <!-- 测试 -->
         <dependency>
