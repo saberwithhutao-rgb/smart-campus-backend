@@ -740,7 +740,7 @@ public class AiQaController {
                 item.put("fileId", conv.getFileId());
                 item.put("questionType", conv.getQuestionType());
                 item.put("tokenUsage", conv.getTokenUsage());
-                item.put("createdAt", conv.getCreatedAt());
+                item.put("createdAt", conv.getCreatedAt().toString());
                 item.put("rating", conv.getRating());
 
                 if (conv.getFileId() != null) {
