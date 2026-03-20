@@ -1174,6 +1174,7 @@ public class AiQaController {
                     userId,
                     request.getTaskId(),
                     request.getTitle(),
+                    request.getDescription(),
                     request.getReviewStage()
             );
 

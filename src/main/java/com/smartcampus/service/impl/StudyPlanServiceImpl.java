@@ -285,7 +285,7 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         plan.setStatus("completed");
         log.info("计划从未完成变为完成，直接生成第一次复习任务");
 
-        // ✅ 修改：直接创建第一次复习任务（reviewStage = 1），而不是待生产任务
+        // ✅ 修改：直接创建第一次复习任务（reviewStage = 1）
         CompletableFuture.runAsync(() -> {
             try {
                 // 调用新方法直接创建第一次复习任务

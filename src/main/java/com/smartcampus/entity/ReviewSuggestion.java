@@ -22,7 +22,7 @@ public class ReviewSuggestion {
     @Column(name = "user_id", nullable = false)
     private Integer userId;
 
-    @Column(name = "review_stage", nullable = false)  // 新增字段
+    @Column(name = "review_stage", nullable = false)
     private Integer reviewStage;
 
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")

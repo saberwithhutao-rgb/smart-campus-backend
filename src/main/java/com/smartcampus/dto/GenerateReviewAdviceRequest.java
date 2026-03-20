@@ -14,4 +14,6 @@ public class GenerateReviewAdviceRequest {
 
     @NotNull(message = "复习阶段不能为空")
     private Integer reviewStage;
+
+    private String description;
 }

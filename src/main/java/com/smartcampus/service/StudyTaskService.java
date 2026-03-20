@@ -142,7 +142,7 @@ public class StudyTaskService {
     /**
      * 根据ID获取任务（带权限验证）
      */
-    public StudyTask getTaskById(Integer userId, Integer taskId) {
+    public void getTaskById(Integer userId, Integer taskId) {
         StudyTask task = studyTaskDao.findById(taskId)
                 .orElseThrow(() -> new BusinessException(404, "任务不存在"));
 
@@ -150,7 +150,6 @@ public class StudyTaskService {
             throw new BusinessException(403, "无权访问此任务");
         }
 
-        return task;
     }
 
     /**
@@ -182,7 +181,7 @@ public class StudyTaskService {
         task.setPlanId(plan.getId());
         task.setUserId(plan.getUserId());
         task.setTitle(plan.getTitle());
-        task.setDescription(null);
+        task.setDescription(plan.getDescription());
         task.setTaskDate(LocalDate.now());
         task.setScheduledTime(null);
         task.setDurationMinutes(30);

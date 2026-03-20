@@ -33,7 +33,6 @@ import java.util.concurrent.Future;
 public class FileProcessingService {
 
     private final Path fileStorageLocation;
-    private Tesseract tesseract;  // OCR引擎
 
     public FileProcessingService() {
         this.fileStorageLocation = Paths.get("/opt/smart-campus/uploads")
@@ -54,6 +53,8 @@ public class FileProcessingService {
      * 初始化 Tesseract OCR
      */
     private void initTesseract() {
+        // OCR引擎
+        Tesseract tesseract;
         try {
             tesseract = new Tesseract();
             tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
@@ -63,7 +64,6 @@ public class FileProcessingService {
             log.info("Tesseract OCR 初始化成功");
         } catch (Exception e) {
             log.error("Tesseract 初始化失败，OCR功能将不可用", e);
-            tesseract = null;
         }
     }
 
@@ -82,8 +82,6 @@ public class FileProcessingService {
                 case "txt" -> extractTextFromTxt(file);
                 case "xls", "xlsx" -> extractTextFromExcel(file);
                 case "pptx" -> extractTextFromPptx(file);
-                case "jpg", "jpeg", "png", "bmp", "gif" -> extractTextFromImage(file);
-                // ❌ 移除音频相关 case
                 default -> "【不支持的文件格式: " + extension + "】";
             };
         } catch (Exception e) {
@@ -315,59 +313,11 @@ public class FileProcessingService {
     // ==================== 图片 OCR 解析 ====================
 
     private String extractTextFromImage(MultipartFile file) {
-        if (tesseract == null) {
-            return "【OCR引擎未初始化】";
-        }
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<String> future = executor.submit(() -> {
-            try {
-                BufferedImage image = ImageIO.read(file.getInputStream());
-                return tesseract.doOCR(image);
-            } catch (TesseractException | IOException e) {
-                log.error("OCR解析失败", e);
-                return "【图片OCR识别失败】";
-            }
-        });
-
-        try {
-            return future.get(15, TimeUnit.SECONDS);  // 15秒超时
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            log.error("OCR解析超时");
-            return "【图片解析超时，文件可能过大或图片质量较差】";
-        } catch (Exception e) {
-            log.error("OCR解析异常", e);
-            return "【图片解析失败】";
-        } finally {
-            executor.shutdownNow();
-        }
+        return "【图片OCR功能已禁用，请上传PDF、Word、Excel、PPTX或TXT格式的文件】";
     }
 
     private String extractTextFromImageFile(File file) {
-        if (tesseract == null) {
-            return "【OCR引擎未初始化】";
-        }
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        Future<String> future = executor.submit(() -> {
-            try {
-                return tesseract.doOCR(file);
-            } catch (TesseractException e) {
-                log.error("OCR解析失败", e);
-                return "【图片OCR识别失败】";
-            }
-        });
-        try {
-            return future.get(15, TimeUnit.SECONDS);  // 15秒超时
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            log.error("OCR解析超时");
-            return "【图片解析超时，文件可能过大或图片质量较差】";
-        } catch (Exception e) {
-            log.error("OCR解析异常", e);
-            return "【图片解析失败】";
-        } finally {
-            executor.shutdownNow();
-        }
+        return "【图片OCR功能已禁用，请上传PDF、Word、Excel、PPTX或TXT格式的文件】";
     }
 
     // ==================== 原有的 PDF、DOCX、TXT 等方法保持不变 ====================
