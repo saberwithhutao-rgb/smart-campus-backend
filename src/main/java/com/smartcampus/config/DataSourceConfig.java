@@ -43,15 +43,6 @@ public class DataSourceConfig {
         config.setConnectionInitSql("SELECT 1");
         config.setPoolName("SmartCampusProdPool");
 
-        // 移除可能出问题的复杂配置
-        // config.addDataSourceProperty("prepareThreshold", "5");
-        // config.addDataSourceProperty("preparedStatementCacheQueries", "256");
-
-        // 重要：不设置这些，避免冲突
-        // config.setIdleTimeout(600000);
-        // config.setMaxLifetime(1800000);
-        // config.setLeakDetectionThreshold(60000);
-
         return new HikariDataSource(config);
     }
 

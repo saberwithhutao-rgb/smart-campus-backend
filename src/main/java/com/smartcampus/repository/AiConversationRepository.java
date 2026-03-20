@@ -109,4 +109,16 @@ public interface AiConversationRepository extends JpaRepository<AiConversation, 
      */
     @Query("SELECT a FROM AiConversation a WHERE a.userId = :userId AND a.sessionId = :sessionId ORDER BY a.createdAt ASC")
     List<AiConversation> findByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
+
+    List<AiConversation> findTop10ByUserIdAndSessionIdOrderByCreatedAtAsc(Long userId, String sessionId);
+
+    @Query("SELECT c FROM AiConversation c " +
+            "WHERE c.userId = :userId AND c.sessionId = :sessionId " +
+            "ORDER BY c.createdAt ASC " +
+            "LIMIT :limit")
+    List<AiConversation> findTopNByUserIdAndSessionIdOrderByCreatedAtAsc(
+            @Param("userId") Long userId,
+            @Param("sessionId") String sessionId,
+            @Param("limit") int limit);
+
 }

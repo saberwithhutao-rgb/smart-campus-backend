@@ -134,12 +134,13 @@ public class AiQaController {
                 // 流式模式 - 支持文件上传
                 return handleStreamingChat(question, file, sessionId, userId);
             } else {
-                // 非流式模式 - 不支持文件上传（文件上传必须用流式）
-                if (file != null && !file.isEmpty()) {
-                    return ResponseEntity.badRequest()
-                            .body(Map.of("code", 400, "message", "文件上传必须使用流式模式（stream=true）"));
-                }
-                return handleNormalChat(question, userId, sessionId);
+                // 非流式模式 - 不支持
+                log.warn("非流式模式已废弃，拒绝请求，streamParam={}", streamParam);
+                return ResponseEntity.badRequest()
+                        .body(Map.of(
+                                "code", 400,
+                                "message", "非流式模式已不再支持，请使用流式模式（stream=true 或不传此参数）"
+                        ));
             }
 
         } catch (Exception e) {
@@ -266,14 +267,13 @@ public class AiQaController {
                 // 用于累积纯文本（保存到数据库用）
                 StringBuilder fullAnswerText = new StringBuilder();
 
-                if (qianWenService == null) {
-                    log.error("❌ qianWenService 为 null！");
-                    return;
-                }
-
-                // 调用通义千问流式API
-                qianWenService.askQuestionStream(enhancedQuestion, Collections.emptyList(), "qwen-max")
-                        .doOnNext(chunk -> {
+                qianWenService.askQuestionWithContext(
+                        finalUserId,
+                        finalSessionId,
+                        enhancedQuestion,
+                        null,
+                        "qwen-max"
+                ).doOnNext(chunk -> {
                             log.info("📦 收到 AI chunk: {}", chunk.substring(0, Math.min(50, chunk.length())));
                             try {
                                 String textChunk = extractTextFromChunk(chunk);
@@ -361,8 +361,7 @@ public class AiQaController {
                 JsonNode delta = choices.get(0).path("delta");
 
                 if (delta.has("content")) {
-                    String content = delta.path("content").asText();
-                    return content;
+                    return delta.path("content").asText();
                 } else {
                     log.info("delta 节点没有 content 字段");
                 }
@@ -377,50 +376,7 @@ public class AiQaController {
         return "";
     }
 
-    /**
-     * 处理非流式聊天（纯文本）
-     */
-    private ResponseEntity<?> handleNormalChat(String question, Long userId, String sessionId) {
-        log.info("非流式调用通义千问: {}", question);
 
-        try {
-            String aiAnswer = qianWenService.askQuestion(question,
-                            Collections.emptyList(), "qwen-max")
-                    .block(Duration.ofSeconds(90));
-
-            if (aiAnswer == null || aiAnswer.trim().isEmpty()) {
-                aiAnswer = "AI服务返回空响应，请稍后重试。";
-            }
-
-            boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
-
-            // 异步保存对话记录
-            String finalAnswer = aiAnswer;
-            executorService.submit(() -> {
-                saveConversationToDb(userId, sessionId, question, finalAnswer, null, isFirstMessage);
-            });
-
-            return ResponseEntity.ok(Map.of(
-                    "code", 200,
-                    "message", "success",
-                    "data", Map.of(
-                            "answer", aiAnswer,
-                            "sessionId", sessionId
-                    )
-            ));
-
-        } catch (Exception e) {
-            log.error("调用AI服务失败", e);
-            return ResponseEntity.ok(Map.of(
-                    "code", 500,
-                    "message", "AI服务暂时不可用",
-                    "data", Map.of(
-                            "answer", "AI服务响应超时，请稍后重试。",
-                            "sessionId", sessionId
-                    )
-            ));
-        }
-    }
 
     /**
      * 验证并提取用户ID
@@ -474,78 +430,6 @@ public class AiQaController {
      */
     private String generateSessionId() {
         return "sess_" + UUID.randomUUID().toString().substring(0, 12);
-    }
-
-    /**
-     * 处理文件上传
-     */
-    private ResponseEntity<?> handleFileUpload(String question, MultipartFile file,
-                                               String userId, String sessionId) {
-        // 验证文件类型
-        String[] allowedTypes = {"pdf", "doc", "docx", "txt", "ppt", "pptx"};
-        String originalName = file.getOriginalFilename();
-        String fileExt = getFileExtension(originalName).toLowerCase();
-
-        if (!Arrays.asList(allowedTypes).contains(fileExt)) {
-            return ResponseEntity.badRequest()
-                    .body(buildErrorResponse(400, "不支持的文件格式"));
-        }
-
-        // 生成任务ID
-        String taskId = "task_" + UUID.randomUUID().toString().substring(0, 8);
-        taskStatus.put(taskId, "processing");
-
-        // 异步处理文件
-        executorService.submit(() -> {
-            try {
-                // 1. 保存文件到数据库
-                LearningFile learningFile = saveLearningFile(file, userId);
-
-                // 2. 提取文件文本
-                String fileContent = fileProcessingService.extractTextFromFile(file);
-
-                // 3. 构建提示词（问题 + 文件内容）
-                String enhancedQuestion = question + "\n\n相关文件内容参考:\n" +
-                        fileContent.substring(0, Math.min(2000, fileContent.length()));
-
-                // 4. 调用AI
-                String aiAnswer = qianWenService.askQuestion(enhancedQuestion,
-                                Collections.emptyList(),
-                                "qwen-max")
-                        .block(Duration.ofSeconds(90));
-
-                // 5. 判断是否是会话的第一条消息
-                Long userIdLong = Long.parseLong(userId);
-                boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userIdLong, sessionId) == 0;
-
-                // 6. 保存对话记录
-                saveConversationToDb(userIdLong, sessionId, question, aiAnswer, learningFile.getId(), isFirstMessage);
-
-                // 7. 更新文件摘要
-                if (aiAnswer != null) {
-                    updateFileSummary(learningFile.getId(), aiAnswer);
-                }
-
-                // 8. 更新任务状态
-                taskStatus.put(taskId, "completed:" + aiAnswer);
-
-            } catch (Exception e) {
-                log.error("文件处理失败", e);
-                taskStatus.put(taskId, "failed:" + e.getMessage());
-            }
-        });
-
-        // 立即返回任务ID（202状态码）
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 202);
-        response.put("message", "文件正在处理中");
-        response.put("data", Map.of(
-                "taskId", taskId,
-                "sessionId", sessionId,
-                "status", "processing"
-        ));
-
-        return ResponseEntity.status(HttpStatus.ACCEPTED).body(response);
     }
 
     /**

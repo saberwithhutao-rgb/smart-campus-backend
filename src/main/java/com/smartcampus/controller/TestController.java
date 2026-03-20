@@ -7,7 +7,10 @@ import com.smartcampus.service.EmailService;
 import com.smartcampus.utils.JwtUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Example;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -57,6 +60,8 @@ public class TestController {
     @Autowired
     private JwtUtil jwtUtil;
 
+    private static final Logger logger = LoggerFactory.getLogger(Example.class);
+
     // ==================== 安全的随机数生成器 ====================
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DIGITS = "0123456789";
@@ -105,7 +110,7 @@ public class TestController {
             return result;
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             Map<String, Object> errorResult = new HashMap<>();
             errorResult.put("code", 500);
             errorResult.put("message", "验证码生成失败: " + e.getMessage());
@@ -206,7 +211,7 @@ public class TestController {
 
         } catch (Exception e) {
             System.err.println("❌ 生成验证码图片失败: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return ""; // 返回空字符串，前端会降级为文本显示
         }
     }
@@ -282,7 +287,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "测试邮件发送失败: " + e.getMessage());
         }
     }
@@ -356,7 +361,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "发送验证码失败: " + e.getMessage());
         }
     }
@@ -472,7 +477,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "注册失败：" + e.getMessage());
         }
     }
@@ -622,7 +627,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "登录失败：" + e.getMessage());
         }
     }
@@ -676,7 +681,7 @@ public class TestController {
             // token 无效
             return errorResponse(401, "Token无效");
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "获取用户信息失败");
         }
     }
@@ -740,7 +745,7 @@ public class TestController {
                 return response;
 
             } catch (Exception e) {
-                e.printStackTrace(); // 这会把错误详情打印到后端日志里
+                logger.error("操作失败，原因: {}", e.getMessage(), e); // 这会把错误详情打印到后端日志里
                 System.err.println("❌ 邮件发送失败: " + e.getMessage());
 
                 Map<String, Object> errorResponse = new HashMap<>();
@@ -752,7 +757,7 @@ public class TestController {
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return Map.of("code", 500, "message", "处理请求时出错: " + e.getMessage());
         }
     }
@@ -778,7 +783,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(1005, "Token无效，退出失败");
         }
     }
@@ -828,7 +833,7 @@ public class TestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "刷新Token失败");
         }
     }
@@ -940,7 +945,7 @@ public class TestController {
         } catch (IllegalArgumentException e) {
             return errorResponse(401, e.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "更新失败：" + e.getMessage());
         }
     }
@@ -996,7 +1001,7 @@ public class TestController {
             // 生成访问URL
             String avatarUrl = "/api/uploads/avatars/" + fileName;
 
-            // ✅ 更新到数据库
+            // 更新到数据库
             user.setAvatarUrl(avatarUrl);
             userRepository.save(user);  // 这里会保存到数据库
 
@@ -1014,10 +1019,10 @@ public class TestController {
         } catch (IllegalArgumentException e) {
             return errorResponse(401, e.getMessage());
         } catch (IOException e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "文件上传失败：" + e.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "头像更新失败：" + e.getMessage());
         }
     }
