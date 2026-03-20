@@ -23,12 +23,15 @@ public class QianWenService {
     private final WebClient webClient;
     private final AiConversationRepository aiConversationRepository;
     private final ObjectMapper objectMapper;
+    private final ConversationContextService contextService;  // 新增
 
-    // 存储会话历史（可选）
+    // 存储会话历史（可选，现在用 contextService 替代）
     private final Map<String, List<Map<String, String>>> sessionHistories = new ConcurrentHashMap<>();
 
-    public QianWenService(AiConversationRepository aiConversationRepository) {
+    public QianWenService(AiConversationRepository aiConversationRepository,
+                          ConversationContextService contextService) {  // 新增参数
         this.aiConversationRepository = aiConversationRepository;
+        this.contextService = contextService;  // 新增
         this.objectMapper = new ObjectMapper();
 
         String apiKey = System.getenv("AI_QIANWEN_API_KEY");
@@ -56,6 +59,38 @@ public class QianWenService {
             historyMessages.add(Map.of("role", "assistant", "content", conv.getAnswer()));
         }
         return historyMessages;
+    }
+
+    /**
+     * 带上下文的流式调用 - 增强版（使用混合方案）
+     */
+    public Flux<String> askQuestionWithContext(Long userId, String sessionId,
+                                               String question,
+                                               List<Map<String, String>> extraHistory,
+                                               String model,
+                                               Long fileId) {  // 新增 fileId 参数
+
+        // 1. 使用 ConversationContextService 构建完整的上下文
+        List<Map<String, String>> messages = contextService.buildFullContext(
+                userId, sessionId, question, fileId
+        );
+
+        // 2. 如果有额外历史（兼容旧逻辑），合并
+        if (extraHistory != null && !extraHistory.isEmpty()) {
+            // 找到 user 消息的位置，在它之前插入额外历史
+            // 简化处理：直接添加到 messages 开头（系统消息之后）
+            List<Map<String, String>> merged = new ArrayList<>();
+            merged.add(messages.getFirst()); // 系统消息
+            merged.addAll(extraHistory);
+            merged.addAll(messages.subList(1, messages.size()));
+            messages = merged;
+        }
+
+        log.info("🤖 调用通义千问，消息数量: {}, 历史轮数: {}",
+                messages.size(), messages.size() - 2); // 减去系统消息和当前问题
+
+        // 3. 调用API
+        return callAiApi(messages, model);
     }
 
     /**

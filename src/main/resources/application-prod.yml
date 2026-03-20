@@ -115,18 +115,21 @@ ai:
     chunk-overlap: 50
 
   rag:
+    chunk-size: 500
+    chunk-overlap: 50
     top-k: 3
     similarity-threshold: 0.7
-
   task:
     timeout: 300000
     max-concurrent: 10
+  context:
+    max-history: 5
 
 # 文件上传配置（不变）
 file:
   upload:
     max-size: 50MB
-    allowed-types: pdf,doc,docx,txt
+    allowed-types: pdf,doc,docx,txt,xls,xlsx,pptx,jpg,jpeg,png
     storage:
       location: /opt/smart-campus/uploads
 

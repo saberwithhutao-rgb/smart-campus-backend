@@ -9,11 +9,7 @@ import com.smartcampus.exception.BusinessException;
 import com.smartcampus.repository.AiConversationRepository;
 import com.smartcampus.repository.LearningFileRepository;
 import com.smartcampus.repository.UserRepository;
-import com.smartcampus.service.FileProcessingService;
-import com.smartcampus.service.QianWenService;
-import com.smartcampus.service.ReviewAdviceService;
-import com.smartcampus.service.ReviewSuggestionService;
-import com.smartcampus.service.StudyPlanDetailService;
+import com.smartcampus.service.*;
 import com.smartcampus.utils.JwtUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -64,6 +60,12 @@ public class AiQaController {
 
     @Autowired
     private LearningFileRepository learningFileRepository;
+
+    @Autowired
+    private ConversationContextService conversationContextService;
+
+    @Autowired
+    private FileSummaryService fileSummaryService;
 
     private ExecutorService executorService;
     private final Map<String, String> taskStatus = new ConcurrentHashMap<>();
@@ -163,19 +165,15 @@ public class AiQaController {
         emitter.onTimeout(() -> {
             log.warn("SSE连接超时，会话ID: {}", sessionId);
             try {
-                // 发送一个明确的超时事件
                 Map<String, Object> timeoutEvent = Map.of(
                         "type", "timeout",
                         "message", "处理超时，文件可能过大或系统繁忙",
                         "code", 408
                 );
-
-                // 使用自定义事件名，方便前端区分
                 emitter.send(SseEmitter.event()
                         .name("error")
                         .data(timeoutEvent)
                 );
-
             } catch (IOException e) {
                 log.error("发送超时消息失败", e);
             } finally {
@@ -198,17 +196,35 @@ public class AiQaController {
             emitter.complete();
         });
 
-        // ===== 方案一：先在主线程中保存文件 =====
+        // ===== 1. 保存文件（主线程） =====
         String savedFilePath = null;
         Long fileId = null;
+        String fileContent = null;  // 新增：缓存文件内容
 
         if (file != null && !file.isEmpty()) {
             try {
-                // 1. 在主线程中保存文件到持久化目录
+                // 保存文件到持久化目录
                 LearningFile learningFile = saveLearningFile(file, userId.toString());
                 fileId = learningFile.getId();
-                savedFilePath = learningFile.getFilePath(); // 获取保存后的文件路径
-                log.info("文件已保存到: {}", savedFilePath);
+                savedFilePath = learningFile.getFilePath();
+                log.info("文件已保存到: {}, fileId: {}", savedFilePath, fileId);
+
+                // ✅ 立即提取文件内容，避免重复读取
+                fileContent = fileProcessingService.extractTextFromFileByPath(savedFilePath);
+                if (fileContent.length() > 2000) {
+                    fileContent = fileContent.substring(0, 2000) + "...\n[文件内容过长，已截断]";
+                }
+
+                // ✅ 异步生成文件摘要（不阻塞对话）
+                final Long finalFileIdForSummary = fileId;
+                executorService.submit(() -> {
+                    try {
+                        fileSummaryService.generateFileSummaryAsync(finalFileIdForSummary, userId);
+                    } catch (Exception e) {
+                        log.error("生成文件摘要失败, fileId: {}", finalFileIdForSummary, e);
+                    }
+                });
+
             } catch (Exception e) {
                 log.error("保存文件失败", e);
                 try {
@@ -225,96 +241,76 @@ public class AiQaController {
             }
         }
 
-        // 创建 final 副本，用于 lambda 表达式
+        // 创建 final 副本
         final Long finalFileId = fileId;
-        final String finalSavedFilePath = savedFilePath;
+        final String finalFileContent = fileContent;  // 缓存的文件内容
         final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
         final String finalSessionId = sessionId;
         final Long finalUserId = userId;
         final String finalQuestion = question;
-        final int maxRetries = 3;
 
-        // 2. 异步线程中处理 AI 请求
+        // ===== 2. 异步处理 AI 请求 =====
         executorService.submit(() -> {
             try {
+                // ✅ 构建增强的问题（使用已提取的文件内容）
                 String enhancedQuestion = question;
-
-                long startTime = System.currentTimeMillis();
-                log.info("🔥 异步线程开始执行，时间戳: {}", startTime);
-
-                log.info("🔥 异步线程开始执行，sessionId: {}", finalSessionId);
-
-                // 如果有文件，从保存的文件路径读取内容
-                if (finalSavedFilePath != null) {
-                    log.info("📄 开始提取文件内容，路径: {}", finalSavedFilePath);
-                    // 调用 FileProcessingService 的新方法，从文件路径读取
-                    String fileContent = fileProcessingService.extractTextFromFileByPath(finalSavedFilePath);
-
-                    log.info("✅ 文件提取完成，内容长度: {}", fileContent.length());
-                    long fileEnd = System.currentTimeMillis();
-                    log.info("✅ 文件提取完成，耗时: {} ms，内容长度: {}", (fileEnd - startTime), fileContent.length());
-
-                    // 限制文件内容长度，避免提示词过长
-                    if (fileContent.length() > 2000) {
-                        fileContent = fileContent.substring(0, 2000) + "...\n[文件内容过长，已截断]";
-                    }
-
-                    enhancedQuestion = question + "\n\n参考文件内容：\n" + fileContent;
+                if (finalFileContent != null && !finalFileContent.isEmpty()) {
+                    enhancedQuestion = question + "\n\n参考文件内容：\n" + finalFileContent;
                 }
-
-                log.info("🤖 准备调用 AI 服务，问题长度: {}", enhancedQuestion.length());
 
                 // 用于累积纯文本（保存到数据库用）
                 StringBuilder fullAnswerText = new StringBuilder();
 
+                // ✅ 调用 AI 服务（传入 fileId）
                 qianWenService.askQuestionWithContext(
                         finalUserId,
                         finalSessionId,
                         enhancedQuestion,
                         null,
-                        "qwen-max"
+                        "qwen-max",
+                        finalFileId
                 ).doOnNext(chunk -> {
-                            log.info("📦 收到 AI chunk: {}", chunk.substring(0, Math.min(50, chunk.length())));
-                            try {
-                                String textChunk = extractTextFromChunk(chunk);
+                    try {
+                        String textChunk = extractTextFromChunk(chunk);
+                        if (textChunk != null && !textChunk.isEmpty()) {
+                            fullAnswerText.append(textChunk);
+                        }
+                        emitter.send(chunk);
+                    } catch (IOException e) {
+                        log.error("发送SSE数据失败", e);
+                        throw new RuntimeException(e);
+                    }
+                }).doOnComplete(() -> {
+                    log.info("========== 流式完成 ==========");
+                    try {
+                        // 保存对话记录到数据库
+                        saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
+                                fullAnswerText.toString(), finalFileId, isFirstMessage);
 
-                                if (textChunk != null && !textChunk.isEmpty()) {
-                                    fullAnswerText.append(textChunk);
-                                }
+                        // ✅ 更新短期记忆（供后续对话使用）
+                        conversationContextService.updateShortTermMemory(
+                                finalSessionId, finalQuestion,
+                                fullAnswerText.toString(), finalFileId
+                        );
 
-                                emitter.send(chunk);
-
-                            } catch (IOException e) {
-                                log.error("发送SSE数据失败", e);
-                                throw new RuntimeException(e);
-                            }
-                        })
-                        .doOnComplete(() -> {
-                            log.info("========== 流式完成 ==========");
-
-                            try {
-                                saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
-                                        fullAnswerText.toString(), finalFileId, isFirstMessage);
-                                emitter.complete();
-                            } catch (Exception e) {
-                                log.error("保存对话记录失败", e);
-                                emitter.complete();
-                            }
-                        })
-                        .doOnError(error -> {
-                            log.error("流式处理错误: {}", error.getMessage());
-                            try {
-                                Map<String, Object> errorResponse = Map.of(
-                                        "error", "AI处理失败",
-                                        "message", error.getMessage()
-                                );
-                                emitter.send(errorResponse);
-                            } catch (IOException e) {
-                                log.error("发送错误消息失败", e);
-                            }
-                            emitter.complete();
-                        })
-                        .subscribe();
+                        emitter.complete();
+                    } catch (Exception e) {
+                        log.error("保存对话记录失败", e);
+                        emitter.complete();
+                    }
+                }).doOnError(error -> {
+                    log.error("流式处理错误: {}", error.getMessage());
+                    try {
+                        Map<String, Object> errorResponse = Map.of(
+                                "error", "AI处理失败",
+                                "message", error.getMessage()
+                        );
+                        emitter.send(errorResponse);
+                    } catch (IOException e) {
+                        log.error("发送错误消息失败", e);
+                    }
+                    emitter.complete();
+                }).subscribe();
 
             } catch (Exception e) {
                 log.error("处理流式聊天失败", e);

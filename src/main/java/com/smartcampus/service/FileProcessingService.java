@@ -318,12 +318,28 @@ public class FileProcessingService {
         if (tesseract == null) {
             return "【OCR引擎未初始化】";
         }
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try {
+                BufferedImage image = ImageIO.read(file.getInputStream());
+                return tesseract.doOCR(image);
+            } catch (TesseractException | IOException e) {
+                log.error("OCR解析失败", e);
+                return "【图片OCR识别失败】";
+            }
+        });
+
         try {
-            BufferedImage image = ImageIO.read(file.getInputStream());
-            return tesseract.doOCR(image);
-        } catch (TesseractException | IOException e) {
-            log.error("OCR解析失败", e);
-            return "【图片OCR识别失败】";
+            return future.get(15, TimeUnit.SECONDS);  // 15秒超时
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.error("OCR解析超时");
+            return "【图片解析超时，文件可能过大或图片质量较差】";
+        } catch (Exception e) {
+            log.error("OCR解析异常", e);
+            return "【图片解析失败】";
+        } finally {
+            executor.shutdownNow();
         }
     }
 
@@ -331,11 +347,26 @@ public class FileProcessingService {
         if (tesseract == null) {
             return "【OCR引擎未初始化】";
         }
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<String> future = executor.submit(() -> {
+            try {
+                return tesseract.doOCR(file);
+            } catch (TesseractException e) {
+                log.error("OCR解析失败", e);
+                return "【图片OCR识别失败】";
+            }
+        });
         try {
-            return tesseract.doOCR(file);
-        } catch (TesseractException e) {
-            log.error("OCR解析失败", e);
-            return "【图片OCR识别失败】";
+            return future.get(15, TimeUnit.SECONDS);  // 15秒超时
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            log.error("OCR解析超时");
+            return "【图片解析超时，文件可能过大或图片质量较差】";
+        } catch (Exception e) {
+            log.error("OCR解析异常", e);
+            return "【图片解析失败】";
+        } finally {
+            executor.shutdownNow();
         }
     }
 
