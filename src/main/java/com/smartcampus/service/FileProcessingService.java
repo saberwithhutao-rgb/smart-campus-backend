@@ -3,11 +3,21 @@ package com.smartcampus.service;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.poi.hwpf.HWPFDocument;
+import org.apache.poi.hwpf.extractor.WordExtractor;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xslf.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import net.sourceforge.tess4j.Tesseract;
+import net.sourceforge.tess4j.TesseractException;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -23,6 +33,7 @@ import java.util.concurrent.Future;
 public class FileProcessingService {
 
     private final Path fileStorageLocation;
+    private Tesseract tesseract;  // OCR引擎
 
     public FileProcessingService() {
         this.fileStorageLocation = Paths.get("/opt/smart-campus/uploads")
@@ -30,8 +41,29 @@ public class FileProcessingService {
 
         try {
             Files.createDirectories(this.fileStorageLocation);
+
+            initTesseract();
+
         } catch (Exception ex) {
+            log.error("初始化失败", ex);
             throw new RuntimeException("无法创建文件上传目录", ex);
+        }
+    }
+
+    /**
+     * 初始化 Tesseract OCR
+     */
+    private void initTesseract() {
+        try {
+            tesseract = new Tesseract();
+            tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
+            tesseract.setLanguage("chi_sim+eng"); // 中文简体+英文
+            tesseract.setPageSegMode(1);
+            tesseract.setOcrEngineMode(1);
+            log.info("Tesseract OCR 初始化成功");
+        } catch (Exception e) {
+            log.error("Tesseract 初始化失败，OCR功能将不可用", e);
+            tesseract = null;
         }
     }
 
@@ -46,36 +78,17 @@ public class FileProcessingService {
             return switch (extension.toLowerCase()) {
                 case "pdf" -> extractTextFromPdf(file);
                 case "docx" -> extractTextFromDocx(file);
+                case "doc" -> extractTextFromDoc(file);
                 case "txt" -> extractTextFromTxt(file);
-                case "jpg", "jpeg", "png" -> "图片文件，待集成OCR功能";
-                case "mp3", "wav" -> "语音文件，待集成ASR功能";
-                default -> throw new UnsupportedOperationException("不支持的文件格式: " + extension);
+                case "xls", "xlsx" -> extractTextFromExcel(file);
+                case "pptx" -> extractTextFromPptx(file);
+                case "jpg", "jpeg", "png", "bmp", "gif" -> extractTextFromImage(file);
+                // ❌ 移除音频相关 case
+                default -> "【不支持的文件格式: " + extension + "】";
             };
         } catch (Exception e) {
             log.error("文件解析失败: {}", filename, e);
             return "【文件解析失败: " + e.getMessage() + "】";
-        }
-    }
-
-    /**
-     * 存储文件到服务器
-     */
-    public String storeFile(MultipartFile file, String taskId) {
-        String filename = taskId + "_" + file.getOriginalFilename();
-
-        try {
-            if (filename.contains("..")) {
-                throw new RuntimeException("文件名包含非法路径序列: " + filename);
-            }
-
-            Path targetLocation = this.fileStorageLocation.resolve(filename);
-            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-            log.info("文件保存成功: {}, 大小: {} KB", filename, file.getSize() / 1024);
-
-            return targetLocation.toString();
-        } catch (IOException ex) {
-            log.error("文件存储失败: {}", filename, ex);
-            throw new RuntimeException("无法存储文件: " + filename, ex);
         }
     }
 
@@ -100,7 +113,11 @@ public class FileProcessingService {
             return switch (extension.toLowerCase()) {
                 case "pdf" -> extractTextFromPdfFile(file);
                 case "docx" -> extractTextFromDocxFile(file);
+                case "doc" -> extractTextFromDocFile(file);
                 case "txt" -> extractTextFromTxtFile(file);
+                case "xls", "xlsx" -> extractTextFromExcelFile(file);
+                case "pptx" -> extractTextFromPptxFile(file);
+                case "jpg", "jpeg", "png", "bmp", "gif" -> extractTextFromImageFile(file);
                 default -> "【不支持的文件格式: " + extension + "】";
             };
         } catch (Exception e) {
@@ -109,9 +126,221 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 PDF 文件（直接上传）
-     */
+    // ==================== PPTX 解析 ====================
+
+    private String extractTextFromPptx(MultipartFile file) {
+        try (InputStream is = file.getInputStream();
+             XMLSlideShow ppt = new XMLSlideShow(is)) {
+            StringBuilder text = new StringBuilder();
+            List<XSLFSlide> slides = ppt.getSlides();
+
+            for (int i = 0; i < slides.size(); i++) {
+                XSLFSlide slide = slides.get(i);
+                text.append("=== 第 ").append(i + 1).append(" 页 ===\n");
+
+                for (XSLFShape shape : slide.getShapes()) {
+                    if (shape instanceof XSLFTextShape) {
+                        text.append(((XSLFTextShape) shape).getText()).append("\n");
+                    }
+                }
+                text.append("\n");
+            }
+            return text.toString();
+        } catch (Exception e) {
+            log.error("PPTX解析失败", e);
+            return "【PPTX解析失败】";
+        }
+    }
+
+    private String extractTextFromPptxFile(File file) {
+        try (FileInputStream fis = new FileInputStream(file);
+             XMLSlideShow ppt = new XMLSlideShow(fis)) {
+            StringBuilder text = new StringBuilder();
+            List<XSLFSlide> slides = ppt.getSlides();
+
+            for (int i = 0; i < slides.size(); i++) {
+                XSLFSlide slide = slides.get(i);
+                text.append("=== 第 ").append(i + 1).append(" 页 ===\n");
+
+                for (XSLFShape shape : slide.getShapes()) {
+                    if (shape instanceof XSLFTextShape) {
+                        text.append(((XSLFTextShape) shape).getText()).append("\n");
+                    }
+                }
+                text.append("\n");
+            }
+            return text.toString();
+        } catch (Exception e) {
+            log.error("PPTX解析失败", e);
+            return "【PPTX解析失败】";
+        }
+    }
+
+    // ==================== Excel 解析 ====================
+
+    private String extractTextFromExcel(MultipartFile file) {
+        try (InputStream is = file.getInputStream()) {
+            Workbook workbook;
+            String filename = file.getOriginalFilename();
+
+            if (filename != null && filename.endsWith(".xlsx")) {
+                workbook = new XSSFWorkbook(is);
+            } else {
+                workbook = new org.apache.poi.hssf.usermodel.HSSFWorkbook(is);
+            }
+
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                text.append("=== 工作表: ").append(sheet.getSheetName()).append(" ===\n");
+
+                for (Row row : sheet) {
+                    for (Cell cell : row) {
+                        switch (cell.getCellType()) {
+                            case STRING:
+                                text.append(cell.getStringCellValue()).append("\t");
+                                break;
+                            case NUMERIC:
+                                if (DateUtil.isCellDateFormatted(cell)) {
+                                    text.append(cell.getDateCellValue()).append("\t");
+                                } else {
+                                    text.append(cell.getNumericCellValue()).append("\t");
+                                }
+                                break;
+                            case BOOLEAN:
+                                text.append(cell.getBooleanCellValue()).append("\t");
+                                break;
+                            case FORMULA:
+                                try {
+                                    text.append(cell.getCellFormula()).append("\t");
+                                } catch (Exception e) {
+                                    text.append("公式\t");
+                                }
+                                break;
+                            default:
+                                text.append(" \t");
+                        }
+                    }
+                    text.append("\n");
+                }
+                text.append("\n");
+            }
+            workbook.close();
+            return text.toString();
+        } catch (Exception e) {
+            log.error("Excel解析失败", e);
+            return "【Excel解析失败: " + e.getMessage() + "】";
+        }
+    }
+
+    private String extractTextFromExcelFile(File file) {
+        try (FileInputStream fis = new FileInputStream(file)) {
+            Workbook workbook;
+            String filename = file.getName();
+
+            if (filename.endsWith(".xlsx")) {
+                workbook = new XSSFWorkbook(fis);
+            } else {
+                workbook = new org.apache.poi.hssf.usermodel.HSSFWorkbook(fis);
+            }
+
+            StringBuilder text = new StringBuilder();
+            for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+                Sheet sheet = workbook.getSheetAt(i);
+                text.append("=== 工作表: ").append(sheet.getSheetName()).append(" ===\n");
+
+                for (Row row : sheet) {
+                    for (Cell cell : row) {
+                        switch (cell.getCellType()) {
+                            case STRING:
+                                text.append(cell.getStringCellValue()).append("\t");
+                                break;
+                            case NUMERIC:
+                                if (DateUtil.isCellDateFormatted(cell)) {
+                                    text.append(cell.getDateCellValue()).append("\t");
+                                } else {
+                                    text.append(cell.getNumericCellValue()).append("\t");
+                                }
+                                break;
+                            case BOOLEAN:
+                                text.append(cell.getBooleanCellValue()).append("\t");
+                                break;
+                            case FORMULA:
+                                try {
+                                    text.append(cell.getCellFormula()).append("\t");
+                                } catch (Exception e) {
+                                    text.append("公式\t");
+                                }
+                                break;
+                            default:
+                                text.append(" \t");
+                        }
+                    }
+                    text.append("\n");
+                }
+                text.append("\n");
+            }
+            workbook.close();
+            return text.toString();
+        } catch (Exception e) {
+            log.error("Excel解析失败", e);
+            return "【Excel解析失败: " + e.getMessage() + "】";
+        }
+    }
+
+    // ==================== DOC (旧版 Word) 解析 ====================
+
+    private String extractTextFromDoc(MultipartFile file) {
+        try (InputStream is = file.getInputStream();
+             HWPFDocument doc = new HWPFDocument(is);
+             WordExtractor extractor = new WordExtractor(doc)) {
+            return extractor.getText();
+        } catch (Exception e) {
+            log.error("DOC解析失败", e);
+            return "【DOC解析失败】";
+        }
+    }
+
+    private String extractTextFromDocFile(File file) {
+        try (FileInputStream fis = new FileInputStream(file);
+             HWPFDocument doc = new HWPFDocument(fis);
+             WordExtractor extractor = new WordExtractor(doc)) {
+            return extractor.getText();
+        } catch (Exception e) {
+            log.error("DOC解析失败", e);
+            return "【DOC解析失败】";
+        }
+    }
+
+    // ==================== 图片 OCR 解析 ====================
+
+    private String extractTextFromImage(MultipartFile file) {
+        if (tesseract == null) {
+            return "【OCR引擎未初始化】";
+        }
+        try {
+            BufferedImage image = ImageIO.read(file.getInputStream());
+            return tesseract.doOCR(image);
+        } catch (TesseractException | IOException e) {
+            log.error("OCR解析失败", e);
+            return "【图片OCR识别失败】";
+        }
+    }
+
+    private String extractTextFromImageFile(File file) {
+        if (tesseract == null) {
+            return "【OCR引擎未初始化】";
+        }
+        try {
+            return tesseract.doOCR(file);
+        } catch (TesseractException e) {
+            log.error("OCR解析失败", e);
+            return "【图片OCR识别失败】";
+        }
+    }
+
+    // ==================== 原有的 PDF、DOCX、TXT 等方法保持不变 ====================
+
     private String extractTextFromPdf(MultipartFile file) {
         long start = System.currentTimeMillis();
         try (PDDocument document = PDDocument.load(file.getInputStream())) {
@@ -126,9 +355,6 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 PDF 文件（从路径）
-     */
     private String extractTextFromPdfFile(File file) {
         long start = System.currentTimeMillis();
         ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -141,7 +367,7 @@ public class FileProcessingService {
         });
 
         try {
-            String result = future.get(30, TimeUnit.SECONDS); // PDF 可能更大，给 30 秒
+            String result = future.get(30, TimeUnit.SECONDS);
             log.info("PDF解析完成，长度: {}，耗时: {} ms", result.length(), System.currentTimeMillis() - start);
             return result;
         } catch (TimeoutException e) {
@@ -156,9 +382,6 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 DOCX 文件（直接上传）
-     */
     private String extractTextFromDocx(MultipartFile file) {
         long start = System.currentTimeMillis();
         try (XWPFDocument doc = new XWPFDocument(file.getInputStream())) {
@@ -172,9 +395,6 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 DOCX 文件（从路径）- 带超时保护和范围限制
-     */
     private String extractTextFromDocxFile(File file) {
         log.info("开始解析 DOCX 文件，大小: {} KB", file.length() / 1024);
         long start = System.currentTimeMillis();
@@ -186,7 +406,6 @@ public class FileProcessingService {
 
                 log.info("XWPFDocument 加载完成，耗时: {} ms", System.currentTimeMillis() - start);
 
-                // 方案1：段落提取（轻量级）
                 StringBuilder text = new StringBuilder();
                 int paragraphCount = 0;
 
@@ -210,7 +429,6 @@ public class FileProcessingService {
                     return text.toString();
                 }
 
-                // 方案2：完整提取
                 log.warn("段落提取为空，尝试完整提取");
                 XWPFWordExtractor extractor = new XWPFWordExtractor(doc);
                 String fullText = extractor.getText();
@@ -243,9 +461,6 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 TXT 文件（直接上传）
-     */
     private String extractTextFromTxt(MultipartFile file) {
         try {
             return new String(file.getBytes(), StandardCharsets.UTF_8);
@@ -255,15 +470,34 @@ public class FileProcessingService {
         }
     }
 
-    /**
-     * 解析 TXT 文件（从路径）
-     */
     private String extractTextFromTxtFile(File file) {
         try {
             return Files.readString(file.toPath());
         } catch (IOException e) {
             log.error("TXT解析失败", e);
             return "【TXT解析失败】";
+        }
+    }
+
+    /**
+     * 存储文件到服务器
+     */
+    public String storeFile(MultipartFile file, String taskId) {
+        String filename = taskId + "_" + file.getOriginalFilename();
+
+        try {
+            if (filename.contains("..")) {
+                throw new RuntimeException("文件名包含非法路径序列: " + filename);
+            }
+
+            Path targetLocation = this.fileStorageLocation.resolve(filename);
+            Files.copy(file.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
+            log.info("文件保存成功: {}, 大小: {} KB", filename, file.getSize() / 1024);
+
+            return targetLocation.toString();
+        } catch (IOException ex) {
+            log.error("文件存储失败: {}", filename, ex);
+            throw new RuntimeException("无法存储文件: " + filename, ex);
         }
     }
 
@@ -281,7 +515,7 @@ public class FileProcessingService {
      * 检查是否支持的文件类型
      */
     public boolean isSupportedFileType(String filename) {
-        String[] supported = {"pdf", "docx", "txt", "jpg", "jpeg", "png", "mp3", "wav", "ppt", "pptx"};
+        String[] supported = {"pdf", "docx", "doc", "txt", "xls", "xlsx", "pptx", "jpg", "jpeg", "png", "bmp", "gif"};
         String extension = getFileExtension(filename).toLowerCase();
 
         for (String type : supported) {
