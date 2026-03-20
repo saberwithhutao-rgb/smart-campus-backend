@@ -1,8 +1,8 @@
 package com.smartcampus.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartcampus.entity.AiConversation;
 import com.smartcampus.repository.AiConversationRepository;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -11,27 +11,20 @@ import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
 public class QianWenService {
 
     private final WebClient webClient;
+    @Getter
     private final AiConversationRepository aiConversationRepository;
     private final ObjectMapper objectMapper;
-    private final ConversationContextService contextService;  // 新增
 
-    // 存储会话历史（可选，现在用 contextService 替代）
-    private final Map<String, List<Map<String, String>>> sessionHistories = new ConcurrentHashMap<>();
-
-    public QianWenService(AiConversationRepository aiConversationRepository,
-                          ConversationContextService contextService) {  // 新增参数
+    public QianWenService(AiConversationRepository aiConversationRepository) {
         this.aiConversationRepository = aiConversationRepository;
-        this.contextService = contextService;  // 新增
         this.objectMapper = new ObjectMapper();
 
         String apiKey = System.getenv("AI_QIANWEN_API_KEY");
@@ -47,78 +40,34 @@ public class QianWenService {
     }
 
     /**
-     * 从数据库获取并构建历史消息
+     * 带上下文的流式调用 - 直接接收已构建好的消息列表
      */
-    public List<Map<String, String>> buildHistoryFromDb(Long userId, String sessionId, int limit) {
-        List<AiConversation> recentHistory = aiConversationRepository
-                .findTopNByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId, limit);
-
-        List<Map<String, String>> historyMessages = new ArrayList<>();
-        for (AiConversation conv : recentHistory) {
-            historyMessages.add(Map.of("role", "user", "content", conv.getQuestion()));
-            historyMessages.add(Map.of("role", "assistant", "content", conv.getAnswer()));
-        }
-        return historyMessages;
-    }
-
-    /**
-     * 带上下文的流式调用 - 增强版（使用混合方案）
-     */
-    public Flux<String> askQuestionWithContext(Long userId, String sessionId,
-                                               String question,
-                                               List<Map<String, String>> extraHistory,
-                                               String model,
-                                               Long fileId) {  // 新增 fileId 参数
-
-        // 1. 使用 ConversationContextService 构建完整的上下文
-        List<Map<String, String>> messages = contextService.buildFullContext(
-                userId, sessionId, question, fileId
-        );
-
-        // 2. 如果有额外历史（兼容旧逻辑），合并
-        if (extraHistory != null && !extraHistory.isEmpty()) {
-            // 找到 user 消息的位置，在它之前插入额外历史
-            // 简化处理：直接添加到 messages 开头（系统消息之后）
-            List<Map<String, String>> merged = new ArrayList<>();
-            merged.add(messages.getFirst()); // 系统消息
-            merged.addAll(extraHistory);
-            merged.addAll(messages.subList(1, messages.size()));
-            messages = merged;
-        }
-
-        log.info("🤖 调用通义千问，消息数量: {}, 历史轮数: {}",
-                messages.size(), messages.size() - 2); // 减去系统消息和当前问题
-
-        // 3. 调用API
+    public Flux<String> askQuestionWithContext(List<Map<String, String>> messages, String model) {
+        log.info("🤖 调用通义千问，消息数量: {}", messages.size());
         return callAiApi(messages, model);
     }
 
-    /**
-     * 带上下文的流式调用
-     */
+    // 保留旧方法，标记为废弃
+    @Deprecated
     public Flux<String> askQuestionWithContext(Long userId, String sessionId,
                                                String question,
                                                List<Map<String, String>> extraHistory,
                                                String model) {
-        // 1. 从数据库获取历史
-        List<Map<String, String>> dbHistory = buildHistoryFromDb(userId, sessionId, 10);
-
-        // 2. 合并额外历史
-        List<Map<String, String>> allHistory = new ArrayList<>(dbHistory);
-        if (extraHistory != null) {
-            allHistory.addAll(extraHistory);
-        }
-
-        // 3. 构建 messages
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", buildSystemPrompt()));
-        messages.addAll(allHistory);
-        messages.add(Map.of("role", "user", "content", question));
-
-        log.info("🤖 调用通义千问，消息数量: {}", messages.size());
-
-        // 4. 调用API
+        // 为了兼容性，但实际不会调用
+        log.warn("使用了废弃的 askQuestionWithContext 方法");
+        List<Map<String, String>> messages = List.of(
+                Map.of("role", "user", "content", question)
+        );
         return callAiApi(messages, model);
+    }
+
+    @Deprecated
+    public Flux<String> askQuestionWithContext(Long userId, String sessionId,
+                                               String question,
+                                               List<Map<String, String>> extraHistory,
+                                               String model,
+                                               Long fileId) {
+        return askQuestionWithContext(userId, sessionId, question, extraHistory, model);
     }
 
     /**
@@ -236,4 +185,5 @@ public class QianWenService {
     public ObjectMapper getObjectMapper() {
         return objectMapper;
     }
+
 }

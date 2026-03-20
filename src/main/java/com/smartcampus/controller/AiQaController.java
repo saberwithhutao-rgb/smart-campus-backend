@@ -241,76 +241,72 @@ public class AiQaController {
             }
         }
 
-        // 创建 final 副本
-        final Long finalFileId = fileId;
         final String finalFileContent = fileContent;  // 缓存的文件内容
         final boolean isFirstMessage = aiConversationRepository.countByUserIdAndSessionId(userId, sessionId) == 0;
-        final String finalSessionId = sessionId;
-        final Long finalUserId = userId;
-        final String finalQuestion = question;
 
         // ===== 2. 异步处理 AI 请求 =====
+        final Long currentFileId = fileId;
+        final String finalQuestion = question;
+
         executorService.submit(() -> {
             try {
-                // ✅ 构建增强的问题（使用已提取的文件内容）
                 String enhancedQuestion = question;
                 if (finalFileContent != null && !finalFileContent.isEmpty()) {
                     enhancedQuestion = question + "\n\n参考文件内容：\n" + finalFileContent;
                 }
 
-                // 用于累积纯文本（保存到数据库用）
+                // ✅ 在 Controller 层构建完整的上下文消息列表
+                List<Map<String, String>> messages = conversationContextService.buildFullContext(
+                        userId, sessionId, enhancedQuestion, currentFileId
+                );
+
                 StringBuilder fullAnswerText = new StringBuilder();
 
-                // ✅ 调用 AI 服务（传入 fileId）
-                qianWenService.askQuestionWithContext(
-                        finalUserId,
-                        finalSessionId,
-                        enhancedQuestion,
-                        null,
-                        "qwen-max",
-                        finalFileId
-                ).doOnNext(chunk -> {
-                    try {
-                        String textChunk = extractTextFromChunk(chunk);
-                        if (textChunk != null && !textChunk.isEmpty()) {
-                            fullAnswerText.append(textChunk);
-                        }
-                        emitter.send(chunk);
-                    } catch (IOException e) {
-                        log.error("发送SSE数据失败", e);
-                        throw new RuntimeException(e);
-                    }
-                }).doOnComplete(() -> {
-                    log.info("========== 流式完成 ==========");
-                    try {
-                        // 保存对话记录到数据库
-                        saveConversationToDb(finalUserId, finalSessionId, finalQuestion,
-                                fullAnswerText.toString(), finalFileId, isFirstMessage);
+                // ✅ 直接传递构建好的消息列表
+                qianWenService.askQuestionWithContext(messages, "qwen-max")
+                        .doOnNext(chunk -> {
+                            try {
+                                String textChunk = extractTextFromChunk(chunk);
+                                if (textChunk != null && !textChunk.isEmpty()) {
+                                    fullAnswerText.append(textChunk);
+                                }
+                                emitter.send(chunk);
+                            } catch (IOException e) {
+                                log.error("发送SSE数据失败", e);
+                                throw new RuntimeException(e);
+                            }
+                        })
+                        .doOnComplete(() -> {
+                            log.info("========== 流式完成 ==========");
+                            try {
+                                saveConversationToDb(userId, sessionId, finalQuestion,
+                                        fullAnswerText.toString(), currentFileId, isFirstMessage);
 
-                        // ✅ 更新短期记忆（供后续对话使用）
-                        conversationContextService.updateShortTermMemory(
-                                finalSessionId, finalQuestion,
-                                fullAnswerText.toString(), finalFileId
-                        );
+                                conversationContextService.updateShortTermMemory(
+                                        sessionId, finalQuestion,
+                                        fullAnswerText.toString(), currentFileId
+                                );
 
-                        emitter.complete();
-                    } catch (Exception e) {
-                        log.error("保存对话记录失败", e);
-                        emitter.complete();
-                    }
-                }).doOnError(error -> {
-                    log.error("流式处理错误: {}", error.getMessage());
-                    try {
-                        Map<String, Object> errorResponse = Map.of(
-                                "error", "AI处理失败",
-                                "message", error.getMessage()
-                        );
-                        emitter.send(errorResponse);
-                    } catch (IOException e) {
-                        log.error("发送错误消息失败", e);
-                    }
-                    emitter.complete();
-                }).subscribe();
+                                emitter.complete();
+                            } catch (Exception e) {
+                                log.error("保存对话记录失败", e);
+                                emitter.complete();
+                            }
+                        })
+                        .doOnError(error -> {
+                            log.error("流式处理错误: {}", error.getMessage());
+                            try {
+                                Map<String, Object> errorResponse = Map.of(
+                                        "error", "AI处理失败",
+                                        "message", error.getMessage()
+                                );
+                                emitter.send(errorResponse);
+                            } catch (IOException e) {
+                                log.error("发送错误消息失败", e);
+                            }
+                            emitter.complete();
+                        })
+                        .subscribe();
 
             } catch (Exception e) {
                 log.error("处理流式聊天失败", e);
@@ -329,6 +325,7 @@ public class AiQaController {
 
         return emitter;
     }
+
 
     /**
      * 从chunk中提取纯文本内容
