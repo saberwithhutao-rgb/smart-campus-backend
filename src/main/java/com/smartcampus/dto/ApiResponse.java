@@ -27,4 +27,10 @@ public class ApiResponse<T> {
     public static <T> ApiResponse<T> created(T data) {
         return new ApiResponse<>(201, "created", data);
     }
+
+    // 添加链式调用方法
+    public ApiResponse<T> data(T data) {
+        this.data = data;
+        return this;
+    }
 }
