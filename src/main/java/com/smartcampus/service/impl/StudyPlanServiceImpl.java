@@ -160,66 +160,79 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
                 .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限修改"));
 
-        // 已完成计划不能修改
+        // ==================== 1. 已完成计划处理 ====================
         if ("completed".equals(plan.getStatus())) {
             if (request.getTitle() != null || request.getDescription() != null ||
                     request.getPlanType() != null || request.getSubject() != null ||
                     request.getDifficulty() != null || request.getStartDate() != null ||
-                    request.getEndDate() != null ||
-                    request.getStatus() != null) {
+                    request.getEndDate() != null || request.getStatus() != null) {
                 throw new BusinessException(403, "已完成计划不能修改任何信息");
             }
             return plan;
         }
 
-        // 进行中的计划不能修改开始日期
-        if ("active".equals(plan.getStatus()) && request.getStartDate() != null) {
-            if (!request.getStartDate().equals(plan.getStartDate())) {
-                throw new BusinessException(403, "进行中的计划不能修改开始日期");
+        // ==================== 2. 开始日期校验 ====================
+        // ✅ 核心规则：开始日期永久不允许修改
+        if (request.getStartDate() != null && !request.getStartDate().equals(plan.getStartDate())) {
+            throw new BusinessException(403, "开始日期创建后不允许修改");
+        }
+
+        // ==================== 3. 其他字段校验 ====================
+
+        // 结束日期校验
+        if (request.getEndDate() != null) {
+            validateDateFormat(request.getEndDate().toString(), "结束日期");
+
+            // 进行中的计划：结束日期只能延后，不能提前
+            if ("active".equals(plan.getStatus()) && plan.getEndDate() != null) {
+                if (request.getEndDate().isBefore(plan.getEndDate())) {
+                    throw new BusinessException(403, "进行中的计划不能将结束日期提前");
+                }
             }
         }
 
-        // 校验日期格式
-        if (request.getStartDate() != null) {
-            validateDateFormat(request.getStartDate().toString(), "开始日期");
-        }
-        if (request.getEndDate() != null) {
-            validateDateFormat(request.getEndDate().toString(), "结束日期");
+        // 状态变更校验
+        if (StringUtils.hasText(request.getStatus())) {
+            // 不允许将已完成状态改为其他
+            if ("completed".equals(plan.getStatus()) && !"completed".equals(request.getStatus())) {
+                throw new BusinessException(403, "已完成计划不能改变状态");
+            }
+
+            // 未开始的计划可以改为进行中或完成
+            if ("paused".equals(plan.getStatus())) {
+                if (!"active".equals(request.getStatus()) && !"completed".equals(request.getStatus())) {
+                    throw new BusinessException(400, "未开始的计划只能改为进行中或完成");
+                }
+            }
         }
 
-        // 如果修改开始日期，不能早于今天
-        if (request.getStartDate() != null) {
-            validateStartDateNotBeforeToday(request.getStartDate());
-        }
+        // ==================== 4. 更新字段 ====================
 
-        // 结束日期不能早于开始日期
-        LocalDate startDate = request.getStartDate() != null ? request.getStartDate() : plan.getStartDate();
-        LocalDate endDate = request.getEndDate() != null ? request.getEndDate() : plan.getEndDate();
-        validateEndDateNotBeforeStartDate(startDate, endDate);
-
-        // 更新字段
         if (StringUtils.hasText(request.getTitle())) {
             plan.setTitle(request.getTitle().trim());
         }
+
         if (request.getDescription() != null) {
             plan.setDescription(request.getDescription());
         }
+
         if (StringUtils.hasText(request.getPlanType())) {
             plan.setPlanType(request.getPlanType());
         }
+
         if (request.getSubject() != null) {
             plan.setSubject(request.getSubject());
         }
+
         if (StringUtils.hasText(request.getDifficulty())) {
             plan.setDifficulty(request.getDifficulty());
         }
 
-        if (request.getStartDate() != null) {
-            plan.setStartDate(request.getStartDate());
-        }
+        // 结束日期（进行中的计划只能延后）
         if (request.getEndDate() != null) {
             plan.setEndDate(request.getEndDate());
         }
+
         if (StringUtils.hasText(request.getStatus())) {
             plan.setStatus(request.getStatus());
         }

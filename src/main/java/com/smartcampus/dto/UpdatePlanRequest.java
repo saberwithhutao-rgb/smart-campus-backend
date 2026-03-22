@@ -22,10 +22,7 @@ public class UpdatePlanRequest {
     @Pattern(regexp = "active|completed|paused", message = "状态必须是 active/completed/paused")
     private String status;
 
-
-    @PastOrPresent(message = "开始日期不能是未来日期")
     private LocalDate startDate;
 
-    @Future(message = "结束日期必须是未来日期")
     private LocalDate endDate;
 }
