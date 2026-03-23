@@ -1,7 +1,9 @@
 package com.smartcampus.controller;
 
 import com.smartcampus.dto.ApiResponse;
+import com.smartcampus.entity.PasswordResetLog;
 import com.smartcampus.entity.User;
+import com.smartcampus.repository.PasswordResetLogRepository;
 import com.smartcampus.repository.UserRepository;
 import com.smartcampus.service.EmailService;
 import com.smartcampus.utils.JwtUtil;
@@ -11,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Example;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,89 +31,87 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Timer;
-import java.util.TimerTask;
 
 @RestController
-@RequestMapping("/api")  // 添加这一行
+@RequestMapping("/api")
 @CrossOrigin(origins = {"http://localhost:5173",
-        "http://8.134.179.88",  // 更新为新服务器IP
+        "http://8.134.179.88",
         "http://localhost"},
         allowedHeaders = "*",
         methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
         allowCredentials = "true")
-
 public class TestController {
 
     @Autowired
     private UserRepository userRepository;
 
     @Autowired
-    private EmailService emailService;  // 邮件服务
+    private EmailService emailService;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    @Autowired(required = false)  // 设置为非必须，避免启动失败
+    @Autowired(required = false)
     private JavaMailSender javaMailSender;
 
     @Autowired
-    private HttpServletRequest httpServletRequest;  // 用于获取客户端IP
+    private HttpServletRequest httpServletRequest;
 
     @Autowired
     private JwtUtil jwtUtil;
 
+    @Autowired
+    private RedisTemplate<String, String> redisTemplate;  // 新增：注入 Redis
+
+    @Autowired
+    private PasswordResetLogRepository passwordResetLogRepository;
+
     private static final Logger logger = LoggerFactory.getLogger(Example.class);
 
-    // ==================== 安全的随机数生成器 ====================
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DIGITS = "0123456789";
-    private static final String CAPTCHA_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"; // 验证码字符集
+    private static final String CAPTCHA_DIGITS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-    // ==================== 频率限制存储 ====================
-    // 存储验证码（key: "email:xxx@xx.com", value: "123456"）
-    private final ConcurrentHashMap<String, String> emailCodes = new ConcurrentHashMap<>();
-
-    // 注册频率限制（key: IP地址, value: 最后注册时间）
+    // 频率限制存储（保留用于 IP 注册限制）
     private final ConcurrentHashMap<String, LocalDateTime> lastRegisterTime = new ConcurrentHashMap<>();
-
-    // 验证码发送频率限制（key: "email:xxx@xx.com", value: 最后发送时间）
     private final ConcurrentHashMap<String, LocalDateTime> lastVerifyCodeTime = new ConcurrentHashMap<>();
 
-    // ==================== 新增：图形验证码接口 ====================
+    // ==================== 图形验证码接口（无状态 Redis 版） ====================
     @GetMapping("/captcha")
     @ResponseBody
-    public Map<String, Object> generateCaptcha(HttpSession session) {
+    public Map<String, Object> generateCaptcha() {
         try {
-            // 生成4位随机字符（数字+大写字母）
+            // 生成4位随机字符
             StringBuilder captcha = new StringBuilder(4);
             for (int i = 0; i < 4; i++) {
                 captcha.append(CAPTCHA_DIGITS.charAt(RANDOM.nextInt(CAPTCHA_DIGITS.length())));
             }
             String captchaText = captcha.toString();
 
-            System.out.println("🔐 [生成图形验证码] " + captchaText);
+            // 生成唯一 ID
+            String captchaId = UUID.randomUUID().toString();
 
-            // 生成验证码图片（Base64格式）
+            // 存入 Redis，有效期 5 分钟
+            String redisKey = "captcha:" + captchaId;
+            redisTemplate.opsForValue().set(redisKey, captchaText, Duration.ofMinutes(5));
+
+            System.out.println("🔐 [生成图形验证码] captchaId: " + captchaId + ", 验证码: " + captchaText);
+
+            // 生成验证码图片
             String captchaBase64 = generateCaptchaImage(captchaText);
-
-            // 存储到session
-            session.setAttribute("captcha", captchaText);
-            session.setAttribute("captchaTime", System.currentTimeMillis());
-//            session.setAttribute("captchaId", session.getId());
 
             Map<String, Object> result = new HashMap<>();
             result.put("code", 200);
             result.put("data", captchaText);
-            result.put("captchaId", session.getId());
-            result.put("captchaBase64", captchaBase64); // 新增：Base64图片
+            result.put("captchaId", captchaId);
+            result.put("captchaBase64", captchaBase64);
             result.put("message", "验证码生成成功");
-            result.put("expiresIn", 600);
+            result.put("expiresIn", 300);
 
             return result;
 
         } catch (Exception e) {
-            logger.error("操作失败，原因: {}", e.getMessage(), e);
+            logger.error("验证码生成失败: {}", e.getMessage(), e);
             Map<String, Object> errorResult = new HashMap<>();
             errorResult.put("code", 500);
             errorResult.put("message", "验证码生成失败: " + e.getMessage());
@@ -119,140 +120,262 @@ public class TestController {
         }
     }
 
-    private String generateCaptchaImage(String text) {
-        try {
-            // 图片尺寸
-            int width = 120;
-            int height = 40;
-
-            // 创建内存中的图片
-            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-            Graphics2D g2d = image.createGraphics();
-
-            // 设置抗锯齿
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            // 绘制背景（渐变）
-            GradientPaint gradient = new GradientPaint(0, 0, new Color(240, 240, 240),
-                    width, height, new Color(200, 200, 200));
-            g2d.setPaint(gradient);
-            g2d.fillRect(0, 0, width, height);
-
-            // 添加噪点背景
-            g2d.setColor(new Color(180, 180, 180));
-            for (int i = 0; i < 100; i++) {
-                int x = RANDOM.nextInt(width);
-                int y = RANDOM.nextInt(height);
-                g2d.fillRect(x, y, 2, 2);
-            }
-
-            // 设置字体
-            Font[] fonts = {
-                    new Font("Arial", Font.BOLD, 28),
-                    new Font("Courier New", Font.BOLD, 28),
-                    new Font("Times New Roman", Font.BOLD, 28)
-            };
-
-            // 绘制验证码字符
-            int charWidth = width / (text.length() + 1);
-            for (int i = 0; i < text.length(); i++) {
-                // 随机选择字体
-                Font font = fonts[RANDOM.nextInt(fonts.length)];
-                g2d.setFont(font);
-
-                // 随机颜色
-                Color color = new Color(
-                        RANDOM.nextInt(100) + 50,    // R: 50-150
-                        RANDOM.nextInt(100) + 50,    // G: 50-150
-                        RANDOM.nextInt(100) + 50     // B: 50-150
-                );
-                g2d.setColor(color);
-
-                // 随机倾斜角度
-                double angle = (RANDOM.nextDouble() - 0.5) * Math.PI / 6; // -15°到+15°
-                g2d.rotate(angle, charWidth * (i + 1), (double) height / 2);
-
-                // 绘制字符
-                String ch = String.valueOf(text.charAt(i));
-                g2d.drawString(ch, charWidth * (i + 1) - 10, height / 2 + 10);
-
-                // 恢复旋转
-                g2d.rotate(-angle, charWidth * (i + 1), (double) height / 2);
-            }
-
-            // 添加干扰线
-            g2d.setColor(new Color(150, 150, 150, 100)); // 半透明灰色
-            for (int i = 0; i < 5; i++) {
-                int x1 = RANDOM.nextInt(width / 2);
-                int y1 = RANDOM.nextInt(height);
-                int x2 = width / 2 + RANDOM.nextInt(width / 2);
-                int y2 = RANDOM.nextInt(height);
-
-                // 设置线条粗细
-                g2d.setStroke(new BasicStroke(1.5f));
-                g2d.drawLine(x1, y1, x2, y2);
-            }
-
-            // 添加边框
-            g2d.setColor(Color.LIGHT_GRAY);
-            g2d.setStroke(new BasicStroke(2f));
-            g2d.drawRect(1, 1, width - 3, height - 3);
-
-            g2d.dispose();
-
-            // 转换为Base64
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            ImageIO.write(image, "PNG", baos);
-            String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
-
-            System.out.println("✅ 生成验证码图片成功，大小: " + base64.length() + " 字符");
-
-            return "data:image/png;base64," + base64;
-
-        } catch (Exception e) {
-            System.err.println("❌ 生成验证码图片失败: " + e.getMessage());
-            logger.error("操作失败，原因: {}", e.getMessage(), e);
-            return ""; // 返回空字符串，前端会降级为文本显示
-        }
-    }
-
-    // 验证图形验证码（辅助方法）
-    private boolean validateCaptcha(HttpSession session, String userCaptcha) {
-        if (session == null || userCaptcha == null || userCaptcha.trim().isEmpty()) {
-            System.out.println("❌ 验证码验证失败：session或用户验证码为空");
+    // 验证图形验证码（无状态 Redis 版）
+    private boolean validateCaptcha(String captchaId, String userCaptcha) {
+        if (captchaId == null || userCaptcha == null || userCaptcha.trim().isEmpty()) {
+            System.out.println("❌ 验证码验证失败：captchaId 或用户验证码为空");
             return false;
         }
 
-        String sessionCaptcha = (String) session.getAttribute("captcha");
-        Long captchaTime = (Long) session.getAttribute("captchaTime");
+        String redisKey = "captcha:" + captchaId;
+        String savedCaptcha = redisTemplate.opsForValue().get(redisKey);
 
-        System.out.println("🔍 [验证图形验证码] session中的: " + sessionCaptcha + ", 用户输入的: " + userCaptcha);
+        System.out.println("🔍 [验证图形验证码] captchaId: " + captchaId + ", 用户输入: " + userCaptcha + ", 保存的: " + savedCaptcha);
 
-        if (sessionCaptcha == null || captchaTime == null) {
-            System.out.println("❌ 验证码验证失败：session中未找到验证码");
+        if (savedCaptcha == null) {
+            System.out.println("❌ 验证码验证失败：验证码已过期或不存在");
             return false;
         }
 
-        // 验证码10分钟有效
-        if (System.currentTimeMillis() - captchaTime > 10 * 60 * 1000) {
-            System.out.println("❌ 验证码验证失败：验证码已过期");
-            session.removeAttribute("captcha");
-            session.removeAttribute("captchaTime");
-            return false;
-        }
-
-        boolean isValid = sessionCaptcha.equalsIgnoreCase(userCaptcha.trim());
+        boolean isValid = savedCaptcha.equalsIgnoreCase(userCaptcha.trim());
 
         if (isValid) {
-            // 验证成功后移除session中的验证码，防止重复使用
-            session.removeAttribute("captcha");
-            session.removeAttribute("captchaTime");
+            // 验证成功后删除，防止重复使用
+            redisTemplate.delete(redisKey);
             System.out.println("✅ 图形验证码验证成功");
         } else {
             System.out.println("❌ 验证码验证失败：不匹配");
         }
 
         return isValid;
+    }
+
+    private String generateCaptchaImage(String text) {
+        try {
+            int width = 120;
+            int height = 40;
+            BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2d = image.createGraphics();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            GradientPaint gradient = new GradientPaint(0, 0, new Color(240, 240, 240),
+                    width, height, new Color(200, 200, 200));
+            g2d.setPaint(gradient);
+            g2d.fillRect(0, 0, width, height);
+            g2d.setColor(new Color(180, 180, 180));
+            for (int i = 0; i < 100; i++) {
+                int x = RANDOM.nextInt(width);
+                int y = RANDOM.nextInt(height);
+                g2d.fillRect(x, y, 2, 2);
+            }
+            Font[] fonts = {
+                    new Font("Arial", Font.BOLD, 28),
+                    new Font("Courier New", Font.BOLD, 28),
+                    new Font("Times New Roman", Font.BOLD, 28)
+            };
+            int charWidth = width / (text.length() + 1);
+            for (int i = 0; i < text.length(); i++) {
+                Font font = fonts[RANDOM.nextInt(fonts.length)];
+                g2d.setFont(font);
+                Color color = new Color(
+                        RANDOM.nextInt(100) + 50,
+                        RANDOM.nextInt(100) + 50,
+                        RANDOM.nextInt(100) + 50
+                );
+                g2d.setColor(color);
+                double angle = (RANDOM.nextDouble() - 0.5) * Math.PI / 6;
+                g2d.rotate(angle, charWidth * (i + 1), (double) height / 2);
+                String ch = String.valueOf(text.charAt(i));
+                g2d.drawString(ch, charWidth * (i + 1) - 10, height / 2 + 10);
+                g2d.rotate(-angle, charWidth * (i + 1), (double) height / 2);
+            }
+            g2d.setColor(new Color(150, 150, 150, 100));
+            for (int i = 0; i < 5; i++) {
+                int x1 = RANDOM.nextInt(width / 2);
+                int y1 = RANDOM.nextInt(height);
+                int x2 = width / 2 + RANDOM.nextInt(width / 2);
+                int y2 = RANDOM.nextInt(height);
+                g2d.setStroke(new BasicStroke(1.5f));
+                g2d.drawLine(x1, y1, x2, y2);
+            }
+            g2d.setColor(Color.LIGHT_GRAY);
+            g2d.setStroke(new BasicStroke(2f));
+            g2d.drawRect(1, 1, width - 3, height - 3);
+            g2d.dispose();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            ImageIO.write(image, "PNG", baos);
+            String base64 = Base64.getEncoder().encodeToString(baos.toByteArray());
+            return "data:image/png;base64," + base64;
+        } catch (Exception e) {
+            System.err.println("❌ 生成验证码图片失败: " + e.getMessage());
+            return "";
+        }
+    }
+
+    // ==================== ✅ 新增：发送重置密码验证码接口 ====================
+    @PostMapping("/password/reset/send")
+    public ResponseEntity<?> sendResetCode(@RequestBody Map<String, String> request) {
+        try {
+            String email = request.get("email");
+            String captcha = request.get("captcha");
+            String captchaId = request.get("captchaId");
+
+            System.out.println("📧 [发送重置验证码] 邮箱: " + email);
+
+            // 验证邮箱格式
+            if (email == null || !email.contains("@")) {
+                return errorResponse(400, "邮箱格式不正确");
+            }
+
+            // 验证图形验证码
+            if (!validateCaptcha(captchaId, captcha)) {
+                return errorResponse(400, "验证码错误或已过期");
+            }
+
+            // 检查邮箱是否存在
+            Optional<User> userOpt = userRepository.findByEmail(email);
+            if (userOpt.isEmpty()) {
+                return errorResponse(404, "该邮箱未注册");
+            }
+
+            // 检查发送频率（同一邮箱60秒内只能发送一次）
+            String emailKey = "reset:limit:" + email;
+            LocalDateTime lastTime = lastVerifyCodeTime.get(emailKey);
+            if (lastTime != null && Duration.between(lastTime, LocalDateTime.now()).getSeconds() < 60) {
+                long remainingSeconds = 60 - Duration.between(lastTime, LocalDateTime.now()).getSeconds();
+                return errorResponse(429, "验证码发送过于频繁，请" + remainingSeconds + "秒后再试");
+            }
+
+            // 生成6位随机验证码
+            String code = generateRandomCode();
+
+            // 存储验证码到 Redis（有效期10分钟）
+            String redisKey = "reset:email:" + email;
+            redisTemplate.opsForValue().set(redisKey, code, Duration.ofMinutes(10));
+
+            // 发送邮件
+            try {
+                emailService.sendVerificationCode(email, code);
+                System.out.println("✅ 重置验证码邮件发送成功: " + email + ", 验证码: " + code);
+            } catch (Exception e) {
+                System.err.println("❌ 邮件发送失败: " + e.getMessage());
+                return errorResponse(500, "邮件发送失败，请稍后重试");
+            }
+
+            // 记录发送时间
+            lastVerifyCodeTime.put(emailKey, LocalDateTime.now());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "验证码已发送至邮箱");
+            response.put("data", null);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("发送重置验证码失败: {}", e.getMessage(), e);
+            return errorResponse(500, "发送失败：" + e.getMessage());
+        }
+    }
+
+    // ==================== ✅ 新增：重置密码接口 ====================
+    @PostMapping("/password/reset")
+    public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
+        try {
+            String email = request.get("email");
+            String verifyCode = request.get("verifyCode");
+            String newPassword = request.get("newPassword");
+
+            System.out.println("🔑 [重置密码] 邮箱: " + email);
+
+            // 1. 验证必填字段
+            if (email == null || !email.contains("@")) {
+                return errorResponse(400, "邮箱格式不正确");
+            }
+            if (verifyCode == null || verifyCode.trim().isEmpty()) {
+                return errorResponse(400, "请输入验证码");
+            }
+            if (newPassword == null || newPassword.trim().isEmpty()) {
+                return errorResponse(400, "请输入新密码");
+            }
+
+            // 2. 验证密码强度
+            if (!isValidPassword(newPassword)) {
+                return errorResponse(400, "密码至少6位，需包含字母和数字");
+            }
+
+            // 3. 验证邮箱验证码
+            String redisKey = "reset:email:" + email;
+            String savedCode = redisTemplate.opsForValue().get(redisKey);
+
+            if (savedCode == null) {
+                // 记录失败日志
+                saveResetLog(null, email, false, "验证码已过期或不存在", httpRequest);
+                return errorResponse(400, "验证码已过期或不存在");
+            }
+            if (!savedCode.equals(verifyCode)) {
+                saveResetLog(null, email, false, "验证码错误", httpRequest);
+                return errorResponse(400, "验证码错误");
+            }
+
+            // 4. 验证成功后删除验证码
+            redisTemplate.delete(redisKey);
+
+            // 5. 查找用户
+            User user = userRepository.findByEmail(email)
+                    .orElse(null);
+
+            if (user == null) {
+                saveResetLog(null, email, false, "用户不存在", httpRequest);
+                return errorResponse(404, "用户不存在");
+            }
+
+            // 6. 更新密码
+            user.setPassword(passwordEncoder.encode(newPassword));
+            userRepository.save(user);
+
+            // 7. 清除该用户的所有 token（更新 Redis 中的 token 版本号）
+            String tokenVersionKey = "user:token:version:" + user.getId();
+            redisTemplate.opsForValue().increment(tokenVersionKey);
+            redisTemplate.expire(tokenVersionKey, Duration.ofDays(7));
+            System.out.println("✅ 用户 " + user.getUsername() + " 的 token 版本已更新");
+
+            // 8. 记录成功日志
+            saveResetLog(user.getId(), email, true, null, httpRequest);
+
+            // 9. 返回成功
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "密码重置成功，请重新登录");
+            response.put("data", null);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("重置密码失败: {}", e.getMessage(), e);
+            return errorResponse(500, "重置失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 保存重置日志
+     */
+    private void saveResetLog(Integer userId, String email, boolean success, String failReason, HttpServletRequest request) {
+        try {
+            PasswordResetLog log = new PasswordResetLog();
+            log.setUserId(userId != null ? userId : 0);
+            log.setEmail(email);
+            log.setResetTime(LocalDateTime.now());
+            log.setResetIp(getClientIp());
+            log.setUserAgent(request.getHeader("User-Agent"));
+            log.setSuccess(success);
+            if (failReason != null) {
+                log.setFailReason(failReason);
+            }
+            passwordResetLogRepository.save(log);
+            System.out.println("📝 [重置日志] 已记录: " + email + ", 成功: " + success);
+        } catch (Exception e) {
+            System.err.println("❌ 记录重置日志失败: " + e.getMessage());
+        }
     }
 
     // ==================== 邮件测试接口 ====================
@@ -305,10 +428,10 @@ public class TestController {
             }
 
             // 1. 检查验证码发送频率（同一邮箱60秒内只能发送一次）
-            String emailKey = "verify:" + email;
-            LocalDateTime lastVerifyTime = lastVerifyCodeTime.get(emailKey);
-            if (lastVerifyTime != null && Duration.between(lastVerifyTime, LocalDateTime.now()).getSeconds() < 60) {
-                long remainingSeconds = 60 - Duration.between(lastVerifyTime, LocalDateTime.now()).getSeconds();
+            String emailKey = "verify:limit:" + email;
+            LocalDateTime lastTime = lastVerifyCodeTime.get(emailKey);
+            if (lastTime != null && Duration.between(lastTime, LocalDateTime.now()).getSeconds() < 60) {
+                long remainingSeconds = 60 - Duration.between(lastTime, LocalDateTime.now()).getSeconds();
                 return errorResponse(429, "验证码发送过于频繁，请" + remainingSeconds + "秒后再试");
             }
 
@@ -317,58 +440,41 @@ public class TestController {
                 return errorResponse(400, "邮箱已被注册");
             }
 
-            // 3. 生成6位随机验证码（使用安全的随机数生成器）
+            // 3. 生成6位随机验证码
             String code = generateRandomCode();
 
-            // 4. 存储验证码
-            String key = "email:" + email;
-            emailCodes.put(key, code);
+            // 4. 存储验证码到 Redis（有效期10分钟）
+            String redisKey = "register:email:" + email;
+            redisTemplate.opsForValue().set(redisKey, code, Duration.ofMinutes(10));
 
-            // 5. 设置10分钟后过期
-            new Timer().schedule(new TimerTask() {
-                @Override
-                public void run() {
-                    emailCodes.remove(key);
-                    System.out.println("⏰ 邮箱验证码已过期: " + email);
-                }
-            }, 10 * 60 * 1000);
-
-            // 6. 发送邮件
-            boolean emailSent = false;
+            // 5. 发送邮件
             try {
-                // 检查EmailService是否可用
-                if (emailService != null) {
-                    emailService.sendVerificationCode(email, code);
-                    emailSent = true;
-                    System.out.println("✅ 验证码邮件发送成功: " + code);
-                } else {
-                    System.err.println("⚠️  EmailService未配置，使用模拟验证码");
-                }
+                emailService.sendVerificationCode(email, code);
+                System.out.println("✅ 注册验证码邮件发送成功: " + email + ", 验证码: " + code);
             } catch (Exception e) {
-                System.err.println("❌ 邮件发送失败，使用模拟验证码: " + e.getMessage());
+                System.err.println("❌ 邮件发送失败: " + e.getMessage());
+                return errorResponse(500, "邮件发送失败，请稍后重试");
             }
 
-            // 7. 记录发送时间
+            // 6. 记录发送时间
             lastVerifyCodeTime.put(emailKey, LocalDateTime.now());
 
-            // 8. 返回成功响应
+            // 7. 返回成功
             Map<String, Object> response = new HashMap<>();
             response.put("code", 200);
             response.put("message", "验证码已发送");
             response.put("data", null);
 
-
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("操作失败，原因: {}", e.getMessage(), e);
+            logger.error("发送验证码失败: {}", e.getMessage(), e);
             return errorResponse(500, "发送验证码失败: " + e.getMessage());
         }
     }
 
     // ==================== 注册接口（添加完整安全限制） ====================
     @PostMapping("/register")
-
     public ResponseEntity<?> register(@RequestBody Map<String, Object> request) {
         try {
             String username = getStringValue(request, "username");
@@ -419,11 +525,6 @@ public class TestController {
                 return errorResponse(400, "邮箱格式不正确");
             }
 
-            // 6. 验证验证码
-            if (!verifyEmailCode(email, verifyCode)) {
-                return errorResponse(400, "验证码错误或已过期");
-            }
-
             // 7. 检查用户名是否已存在
             if (userRepository.existsByUsername(username)) {
                 return errorResponse(400, "用户名已存在");
@@ -439,6 +540,29 @@ public class TestController {
                 if (userRepository.existsByStudentId(studentId)) {
                     return errorResponse(400, "学号已注册");
                 }
+            }
+
+            String redisKey = "register:email:" + email;
+            String savedCode = redisTemplate.opsForValue().get(redisKey);
+
+            if (savedCode == null) {
+                return errorResponse(400, "验证码已过期或不存在");
+            }
+            if (!savedCode.equals(verifyCode)) {
+                return errorResponse(400, "验证码错误");
+            }
+
+            // 验证成功后删除验证码
+            redisTemplate.delete(redisKey);
+
+            // 检查用户名是否已存在
+            if (userRepository.existsByUsername(username)) {
+                return errorResponse(400, "用户名已存在");
+            }
+
+            // 检查邮箱是否已存在
+            if (userRepository.existsByEmail(email)) {
+                return errorResponse(400, "邮箱已注册");
             }
 
             // 10. 创建新用户
@@ -488,39 +612,10 @@ public class TestController {
         for (int i = 0; i < 6; i++) {
             code.append(DIGITS.charAt(RANDOM.nextInt(DIGITS.length())));
         }
-        String generatedCode = code.toString();
-        System.out.println("🔐 生成随机验证码: " + generatedCode);
-        return generatedCode;
+        return code.toString();
     }
 
     // ==================== 安全验证辅助方法 ====================
-
-    // 验证邮箱验证码
-    private boolean verifyEmailCode(String email, String code) {
-        if (email == null || code == null) {
-            return false;
-        }
-
-        String key = "email:" + email;
-        String storedCode = emailCodes.get(key);
-
-        if (storedCode == null) {
-            System.out.println("❌ 验证码不存在或已过期");
-            return false;
-        }
-
-        boolean isValid = storedCode.equals(code);
-
-        if (isValid) {
-            // 验证成功后移除
-            emailCodes.remove(key);
-            System.out.println("✅ 邮箱验证成功: " + email);
-        } else {
-            System.out.println("❌ 验证码错误，期望: " + storedCode + "，收到: " + code);
-        }
-
-        return isValid;
-    }
 
     // 获取客户端IP地址
     private String getClientIp() {
@@ -535,7 +630,6 @@ public class TestController {
             if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
                 ip = httpServletRequest.getRemoteAddr();
             }
-            // 处理多个IP的情况（如代理链）
             if (ip != null && ip.contains(",")) {
                 ip = ip.split(",")[0].trim();
             }
@@ -580,24 +674,21 @@ public class TestController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody Map<String, String> request, HttpServletRequest httpRequest) {
+    public ResponseEntity<?> login(@RequestBody Map<String, String> request) {
         try {
             String username = request.get("username");
             String password = request.get("password");
             String captcha = request.get("captcha");
+            String captchaId = request.get("captchaId");  // ✅ 新增：接收 captchaId
 
             System.out.println("🔑 [登录] 收到数据：" + request);
 
-            HttpSession session = httpRequest.getSession(false);
-
-            // 1. 验证验证码
-            if (session == null || !validateCaptcha(session, captcha)) {
+            // ✅ 修改：验证图形验证码（无状态）
+            if (!validateCaptcha(captchaId, captcha)) {
                 return errorResponse(400, "验证码错误或已过期");
             }
 
-            session.invalidate();
-
-            // 2. 查找用户
+            // ✅ 以下代码保持不变
             User user = userRepository.findByUsername(username)
                     .orElse(userRepository.findByEmail(username).orElse(null));
 
@@ -609,30 +700,25 @@ public class TestController {
                 return errorResponse(403, "账号已被禁用");
             }
 
-            // 3. 验证密码
-            if (!checkPassword(password, user.getPassword())) {
+            if (!passwordEncoder.matches(password, user.getPassword())) {
                 return errorResponse(400, "密码错误");
             }
 
-            // 4. 更新最后登录时间
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
 
-            // 5. 生成token
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
-            // ✅ 6. 返回完整的用户信息
             Map<String, Object> response = getStringObjectMap(token, user);
-
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("操作失败，原因: {}", e.getMessage(), e);
+            logger.error("登录失败: {}", e.getMessage(), e);
             return errorResponse(500, "登录失败：" + e.getMessage());
         }
     }
 
-    private static Map<String, Object> getStringObjectMap(String token, User user) {
+    private Map<String, Object> getStringObjectMap(String token, User user) {
         Map<String, Object> response = new HashMap<>();
         response.put("code", 200);
         response.put("message", "登录成功");
