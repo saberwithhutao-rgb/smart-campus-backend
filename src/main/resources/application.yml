@@ -14,7 +14,7 @@ spring:
     host: smtp.qq.com
     port: 587
     username: 3236654291@qq.com
-    password: zwsvaalbbytmdbbc  # 你的授权码
+    password: cuajirbpyzbpcigb # 你的授权码
     default-encoding: UTF-8
     properties:
       mail:
@@ -47,3 +47,12 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration
+      -
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always

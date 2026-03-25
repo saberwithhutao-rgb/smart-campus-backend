@@ -31,7 +31,7 @@ import java.util.*;
 import java.util.concurrent.*;
 
 @RestController
-@RequestMapping("/ai")
+@RequestMapping("/api/ai")
 @Slf4j
 public class AiQaController {
     private final StudyPlanDetailService studyPlanDetailService;
