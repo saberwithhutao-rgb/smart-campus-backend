@@ -100,6 +100,7 @@ logging:
 jwt:
   secret: ${JWT_SECRET}  # ✅ 从环境变量读取，去掉默认值
   expiration: 86400000
+  refresh-expiration: 604800000
 
 # AI相关配置
 ai:

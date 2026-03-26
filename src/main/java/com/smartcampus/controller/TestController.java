@@ -679,7 +679,7 @@ public class TestController {
             String username = request.get("username");
             String password = request.get("password");
             String captcha = request.get("captcha");
-            String captchaId = request.get("captchaId");  // ✅ 新增：接收 captchaId
+            String captchaId = request.get("captchaId");
 
             System.out.println("🔑 [登录] 收到数据：" + request);
 
@@ -708,36 +708,15 @@ public class TestController {
             userRepository.save(user);
 
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
+            String refreshToken = jwtUtil.generateRefreshToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
-            Map<String, Object> response = getStringObjectMap(token, user);
+            Map<String, Object> response = getStringObjectMap(token, refreshToken,user);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             logger.error("登录失败: {}", e.getMessage(), e);
             return errorResponse(500, "登录失败：" + e.getMessage());
         }
-    }
-
-    private Map<String, Object> getStringObjectMap(String token, User user) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("code", 200);
-        response.put("message", "登录成功");
-
-        Map<String, Object> data = new HashMap<>();
-        data.put("token", token);
-        data.put("role", user.getRole());
-        data.put("username", user.getUsername());
-        data.put("email", user.getEmail() != null ? user.getEmail() : "");
-        data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
-        data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
-        data.put("major", user.getMajor() != null ? user.getMajor() : "");
-        data.put("college", user.getCollege() != null ? user.getCollege() : "");
-        data.put("grade", user.getGrade() != null ? user.getGrade() : "");
-        data.put("gender", user.getGender());
-        data.put("genderText", user.getGenderText());
-
-        response.put("data", data);
-        return response;
     }
 
     @GetMapping("/user/profile")
@@ -874,53 +853,118 @@ public class TestController {
         }
     }
 
-    // 2. 刷新Token接口
-    @PostMapping("/token/refresh")
-    public ResponseEntity<?> refreshToken(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+    // ==================== 自动登录接口（不需要验证码） ====================
+    @PostMapping("/login/credentials")
+    public ResponseEntity<?> loginWithCredentials(@RequestBody Map<String, String> request) {
         try {
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-                return errorResponse(401, "Token无效");
+            String username = request.get("username");
+            String password = request.get("password");
+
+            System.out.println("🔑 [自动登录] 收到数据：" + request);
+
+            // 验证用户名密码
+            User user = userRepository.findByUsername(username)
+                    .orElse(userRepository.findByEmail(username).orElse(null));
+
+            if (user == null) {
+                return errorResponse(404, "用户不存在");
             }
 
-            String oldToken = authHeader.substring(7);
-            // 验证旧token（简单模拟）
-            if (!oldToken.startsWith("jwt-")) {
-                return errorResponse(401, "Token格式错误");
+            if (user.getStatus() == 0) {
+                return errorResponse(403, "账号已被禁用");
             }
 
-            // 解析用户ID
-            String[] parts = oldToken.split("-");
-            if (parts.length < 2) {
-                return errorResponse(401, "Token格式错误");
+            if (!passwordEncoder.matches(password, user.getPassword())) {
+                return errorResponse(401, "密码错误");
             }
 
-            Integer userId = Integer.parseInt(parts[1]);
-            Optional<User> userOptional = userRepository.findById(userId);
+            // 更新最后登录时间
+            user.setLastLoginAt(LocalDateTime.now());
+            userRepository.save(user);
+
+            // 生成 token
+            String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
+
+            // 生成 refresh token（可以使用 JWT 或 UUID）
+            String refreshToken = jwtUtil.generateRefreshToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
+
+            Map<String, Object> response = getStringObjectMap(token, refreshToken, user);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("自动登录失败: {}", e.getMessage(), e);
+            return errorResponse(500, "登录失败：" + e.getMessage());
+        }
+    }
+
+    private static Map<String, Object> getStringObjectMap(String token, String refreshToken, User user) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("code", 200);
+        response.put("message", "登录成功");
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", token);
+        data.put("refreshToken", refreshToken);
+        data.put("role", user.getRole());
+        data.put("username", user.getUsername());
+        data.put("email", user.getEmail() != null ? user.getEmail() : "");
+        data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
+        data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
+        data.put("major", user.getMajor() != null ? user.getMajor() : "");
+        data.put("college", user.getCollege() != null ? user.getCollege() : "");
+        data.put("grade", user.getGrade() != null ? user.getGrade() : "");
+        data.put("gender", user.getGender());
+        data.put("genderText", user.getGenderText());
+
+        response.put("data", data);
+        return response;
+    }
+
+    // ==================== 刷新 Token 接口 ====================
+    @PostMapping("/auth/refresh")
+    public ResponseEntity<?> refreshToken(@RequestBody Map<String, String> request) {
+        try {
+            String refreshToken = request.get("refreshToken");
+
+            if (refreshToken == null || refreshToken.isEmpty()) {
+                return errorResponse(400, "refreshToken 不能为空");
+            }
+
+            // 验证 refresh token
+            if (!jwtUtil.validateRefreshToken(refreshToken)) {
+                // ✅ refresh token 过期或无效
+                // 前端收到这个响应后，会尝试用保存的密码自动登录
+                return errorResponse(401, "refresh token 无效或已过期");
+            }
+
+            Long userId = jwtUtil.getUserIdFromToken(refreshToken);
+            Optional<User> userOptional = userRepository.findById(userId.intValue());
 
             if (userOptional.isEmpty()) {
                 return errorResponse(404, "用户不存在");
             }
 
-            // 生成新token
-            String newToken = "jwt-" + userId + "-" + System.currentTimeMillis();
+            User user = userOptional.get();
+
+            // 生成新的 access token
+            String newToken = jwtUtil.generateToken(userId, user.getUsername(), user.getRole());
 
             Map<String, Object> response = new HashMap<>();
             response.put("code", 200);
-            response.put("message", "Token刷新成功");
+            response.put("message", "Token 刷新成功");
 
             Map<String, Object> data = new HashMap<>();
             data.put("token", newToken);
-            data.put("refreshToken", newToken + "-refresh");
-            data.put("role", userOptional.get().getRole());
-            data.put("username", userOptional.get().getUsername());
 
             response.put("data", data);
 
+            System.out.println("✅ Token 刷新成功: userId=" + userId);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("操作失败，原因: {}", e.getMessage(), e);
-            return errorResponse(500, "刷新Token失败");
+            logger.error("刷新 token 失败: {}", e.getMessage(), e);
+            return errorResponse(500, "刷新 token 失败：" + e.getMessage());
         }
     }
 
