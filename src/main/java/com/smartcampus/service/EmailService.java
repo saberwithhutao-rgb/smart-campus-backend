@@ -19,7 +19,7 @@ public class EmailService {
     @Autowired
     private JavaMailSender mailSender;
 
-    @Value("${spring.mail.username:3236654291@qq.com}")  // ✅ 从配置读取发件邮箱
+    @Value("${spring.mail.username}")  // ✅ 从配置读取发件邮箱
     private String fromEmail;
     /**
      * 发送纯文本邮件
