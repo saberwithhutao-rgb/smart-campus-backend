@@ -222,7 +222,7 @@ public class TestController {
             System.out.println("📧 [发送重置验证码] 邮箱: " + email);
 
             // 验证邮箱格式
-            if (email == null || !email.contains("@")) {
+            if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
 
@@ -288,7 +288,7 @@ public class TestController {
             System.out.println("🔑 [重置密码] 邮箱: " + email);
 
             // 1. 验证必填字段
-            if (email == null || !email.contains("@")) {
+            if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
             if (verifyCode == null || verifyCode.trim().isEmpty()) {
@@ -382,7 +382,7 @@ public class TestController {
     @GetMapping("/mail/test")
     public ResponseEntity<?> testMail(@RequestParam String email) {
         try {
-            if (email == null || !email.contains("@")) {
+            if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
 
@@ -423,7 +423,7 @@ public class TestController {
 
             System.out.println("📧 [发送邮箱验证码] 邮箱: " + email);
 
-            if (email == null || !email.contains("@")) {
+            if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
 
@@ -521,7 +521,7 @@ public class TestController {
             if (password.length() < 6) {
                 return errorResponse(400, "密码长度至少6位");
             }
-            if (email == null || !email.contains("@")) {
+            if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
 
@@ -785,7 +785,7 @@ public class TestController {
         try {
             String toEmail = request.get("email");
 
-            if (toEmail == null || !toEmail.contains("@")) {
+            if (!isValidEmail(toEmail)) {
                 return Map.of("code", 400, "message", "邮箱格式不正确");
             }
 
@@ -1155,6 +1155,32 @@ public class TestController {
             logger.error("操作失败，原因: {}", e.getMessage(), e);
             return errorResponse(500, "头像更新失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * 验证邮箱格式（支持所有常见邮箱）
+     * 规则：
+     * - 本地部分：字母、数字、点、下划线、连字符
+     * - 域名部分：字母、数字、连字符、点
+     */
+    private boolean isValidEmail(String email) {
+        if (email == null || email.trim().isEmpty()) {
+            return false;
+        }
+
+        String trimmedEmail = email.trim();
+
+        // 基本格式：必须包含 @ 和 .
+        if (!trimmedEmail.contains("@") || !trimmedEmail.contains(".")) {
+            return false;
+        }
+
+        // 正则表达式：支持常见邮箱格式
+        // 本地部分：允许字母、数字、点、下划线、连字符
+        // 域名部分：允许字母、数字、连字符、点
+        String emailRegex = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
+
+        return trimmedEmail.matches(emailRegex);
     }
 
 }
