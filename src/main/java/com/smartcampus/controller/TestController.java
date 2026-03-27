@@ -12,7 +12,6 @@ import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Example;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -66,7 +65,7 @@ public class TestController {
     @Autowired
     private PasswordResetLogRepository passwordResetLogRepository;
 
-    private static final Logger logger = LoggerFactory.getLogger(Example.class);
+    private static final Logger logger = LoggerFactory.getLogger(TestController.class);
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String DIGITS = "0123456789";
@@ -300,7 +299,7 @@ public class TestController {
 
             // 2. 验证密码强度
             if (!isValidPassword(newPassword)) {
-                return errorResponse(400, "密码至少6位，需包含字母和数字");
+                return errorResponse(400, "密码必须为8-20位，且包含大写字母、小写字母和数字");
             }
 
             // 3. 验证邮箱验证码
@@ -509,7 +508,7 @@ public class TestController {
 
             // 4. 验证密码强度
             if (!isValidPassword(password)) {
-                return errorResponse(400, "密码至少6位，需包含字母和数字");
+                return errorResponse(400, "密码必须为8-20位，且包含大写字母、小写字母和数字");
             }
 
             // ========== 原有验证逻辑 ==========
@@ -648,15 +647,41 @@ public class TestController {
         return username.matches("^[a-zA-Z0-9_]+$");
     }
 
-    // 验证密码强度
+    /**
+     * 验证密码强度
+     * 规则：
+     * - 长度8-20位
+     * - 至少包含一个大写字母
+     * - 至少包含一个小写字母
+     * - 至少包含一个数字
+     * - 可选：至少包含一个特殊字符（推荐）
+     */
     private boolean isValidPassword(String password) {
-        if (password == null || password.length() < 6) {
+        if (password == null || password.isEmpty()) {
             return false;
         }
-        // 至少包含一个字母和一个数字
-        boolean hasLetter = password.matches(".*[a-zA-Z].*");
+
+        // 1. 长度限制 8-20
+        if (password.length() < 8 || password.length() > 20) {
+            return false;
+        }
+
+        // 2. 检查是否包含大写字母
+        boolean hasUpperCase = password.matches(".*[A-Z].*");
+        // 3. 检查是否包含小写字母
+        boolean hasLowerCase = password.matches(".*[a-z].*");
+        // 4. 检查是否包含数字
         boolean hasDigit = password.matches(".*\\d.*");
-        return hasLetter && hasDigit;
+
+        if (!hasUpperCase || !hasLowerCase || !hasDigit) {
+            return false;
+        }
+
+        // 5. 可选：检查是否包含特殊字符（不强制，但推荐）
+        // boolean hasSpecial = password.matches(".*[!@#$%^&*()_+\\-=\\[\\]{};':\"\\\\|,.<>/?].*");
+
+        // 6. 不允许有空格
+        return !password.contains(" ");
     }
 
     // ==================== 其他接口保持不变 ====================
@@ -681,41 +706,100 @@ public class TestController {
             String captcha = request.get("captcha");
             String captchaId = request.get("captchaId");
 
-            System.out.println("🔑 [登录] 收到数据：" + request);
+            System.out.println("🔑 [登录] 收到请求: username=" + username);
 
-            // ✅ 修改：验证图形验证码（无状态）
+            // 1. 验证图形验证码（第一道防线）
             if (!validateCaptcha(captchaId, captcha)) {
                 return errorResponse(400, "验证码错误或已过期");
             }
 
-            // ✅ 以下代码保持不变
+            // 2. 检查登录失败次数（防止暴力破解）
+            String failKey = "login:fail:" + username;
+            String failCountStr = redisTemplate.opsForValue().get(failKey);
+            int failCount = failCountStr != null ? Integer.parseInt(failCountStr) : 0;
+
+            // 失败超过5次，锁定15分钟
+            if (failCount >= 5) {
+                long ttl = redisTemplate.getExpire(failKey, java.util.concurrent.TimeUnit.SECONDS);
+                if (ttl > 0) {
+                    long minutes = ttl / 60;
+                    long seconds = ttl % 60;
+                    String waitTime = minutes > 0 ? minutes + "分钟" : seconds + "秒";
+                    return errorResponse(429, "登录失败次数过多，请" + waitTime + "后重试");
+                } else {
+                    // TTL 过期，清理记录
+                    redisTemplate.delete(failKey);
+                    failCount = 0;
+                }
+            }
+
+            // 3. 查找用户（支持用户名或邮箱）
             User user = userRepository.findByUsername(username)
                     .orElse(userRepository.findByEmail(username).orElse(null));
 
-            if (user == null) {
-                return errorResponse(400, "用户不存在");
+            // 4. 统一验证：用户名或密码错误（不区分具体原因）
+            boolean isValid = user != null && passwordEncoder.matches(password, user.getPassword());
+
+            if (!isValid) {
+                // 记录失败次数
+                failCount++;
+                redisTemplate.opsForValue().set(failKey, String.valueOf(failCount), Duration.ofMinutes(15));
+
+                // 记录日志（用于安全审计，不返回给前端）
+                logger.warn("登录失败: username={}, reason={}, failCount={}",
+                        username,
+                        user == null ? "用户不存在" : "密码错误",
+                        failCount);
+
+                // 统一返回错误信息
+                if (failCount >= 5) {
+                    return errorResponse(429, "登录失败次数过多，请15分钟后重试");
+                }
+                return errorResponse(401, "用户名或密码错误");
             }
 
+            // 5. 登录成功，清除失败记录
+            redisTemplate.delete(failKey);
+
+            // 6. 检查账号状态
             if (user.getStatus() == 0) {
-                return errorResponse(403, "账号已被禁用");
+                return errorResponse(403, "账号已被禁用，请联系管理员");
             }
 
-            if (!passwordEncoder.matches(password, user.getPassword())) {
-                return errorResponse(400, "密码错误");
-            }
-
+            // 7. 更新最后登录时间
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
 
+            // 8. 生成 token
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
             String refreshToken = jwtUtil.generateRefreshToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
-            Map<String, Object> response = getStringObjectMap(token, refreshToken,user);
+            System.out.println("✅ [登录成功] username=" + username + ", userId=" + user.getId());
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "登录成功");
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("token", token);
+            data.put("refreshToken", refreshToken);
+            data.put("role", user.getRole());
+            data.put("username", user.getUsername());
+            data.put("email", user.getEmail() != null ? user.getEmail() : "");
+            data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
+            data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
+            data.put("major", user.getMajor() != null ? user.getMajor() : "");
+            data.put("college", user.getCollege() != null ? user.getCollege() : "");
+            data.put("grade", user.getGrade() != null ? user.getGrade() : "");
+            data.put("gender", user.getGender());
+            data.put("genderText", user.getGenderText());
+
+            response.put("data", data);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             logger.error("登录失败: {}", e.getMessage(), e);
-            return errorResponse(500, "登录失败：" + e.getMessage());
+            return errorResponse(500, "登录失败，请稍后重试");
         }
     }
 
@@ -860,41 +944,64 @@ public class TestController {
             String username = request.get("username");
             String password = request.get("password");
 
-            System.out.println("🔑 [自动登录] 收到数据：" + request);
+            System.out.println("🔑 [自动登录] 收到请求: username=" + username);
 
-            // 验证用户名密码
+            // 1. 查找用户
             User user = userRepository.findByUsername(username)
                     .orElse(userRepository.findByEmail(username).orElse(null));
 
-            if (user == null) {
-                return errorResponse(404, "用户不存在");
+            // 2. 统一验证（不区分用户不存在还是密码错误）
+            boolean isValid = user != null && passwordEncoder.matches(password, user.getPassword());
+
+            if (!isValid) {
+                // 只记录日志，不增加失败次数，不锁定
+                logger.warn("自动登录失败: username={}, reason={}",
+                        username,
+                        user == null ? "用户不存在" : "密码错误");
+
+                // 统一返回错误信息
+                return errorResponse(401, "用户名或密码错误");
             }
 
+            // 3. 检查账号状态
             if (user.getStatus() == 0) {
-                return errorResponse(403, "账号已被禁用");
+                return errorResponse(403, "账号已被禁用，请联系管理员");
             }
 
-            if (!passwordEncoder.matches(password, user.getPassword())) {
-                return errorResponse(401, "密码错误");
-            }
-
-            // 更新最后登录时间
+            // 4. 更新最后登录时间
             user.setLastLoginAt(LocalDateTime.now());
             userRepository.save(user);
 
-            // 生成 token
+            // 5. 生成 token
             String token = jwtUtil.generateToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
-
-            // 生成 refresh token（可以使用 JWT 或 UUID）
             String refreshToken = jwtUtil.generateRefreshToken(Long.valueOf(user.getId()), user.getUsername(), user.getRole());
 
-            Map<String, Object> response = getStringObjectMap(token, refreshToken, user);
+            System.out.println("✅ [自动登录成功] username=" + username + ", userId=" + user.getId());
 
+            Map<String, Object> response = new HashMap<>();
+            response.put("code", 200);
+            response.put("message", "登录成功");
+
+            Map<String, Object> data = new HashMap<>();
+            data.put("token", token);
+            data.put("refreshToken", refreshToken);
+            data.put("role", user.getRole());
+            data.put("username", user.getUsername());
+            data.put("email", user.getEmail() != null ? user.getEmail() : "");
+            data.put("avatar", user.getAvatarUrl() != null ? user.getAvatarUrl() : "/api/avatars/default-avatar.png");
+            data.put("studentId", user.getStudentId() != null ? user.getStudentId() : "");
+            data.put("major", user.getMajor() != null ? user.getMajor() : "");
+            data.put("college", user.getCollege() != null ? user.getCollege() : "");
+            data.put("grade", user.getGrade() != null ? user.getGrade() : "");
+            data.put("gender", user.getGender());
+            data.put("genderText", user.getGenderText());
+
+            response.put("data", data);
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             logger.error("自动登录失败: {}", e.getMessage(), e);
-            return errorResponse(500, "登录失败：" + e.getMessage());
+            return errorResponse(500, "登录失败，请稍后重试");
         }
     }
 
