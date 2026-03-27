@@ -70,7 +70,7 @@ spring:
 
 # 服务器配置（不变）
 server:
-  port: ${SERVER_PORT}
+  port: ${SERVER_PORT:8080}
   servlet:
     context-path:
 
