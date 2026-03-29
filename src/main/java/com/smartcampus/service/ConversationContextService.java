@@ -160,23 +160,58 @@ public class ConversationContextService {
     // 简单的文件内容缓存
     private final Map<Long, String> fileContentCache = new ConcurrentHashMap<>();
 
+    /**
+     * 获取缓存的文件内容（带重试机制）
+     */
     private String getCachedFileContent(Long fileId, String filePath) {
         // 先查缓存
         if (fileContentCache.containsKey(fileId)) {
             return fileContentCache.get(fileId);
         }
 
-        // 读取文件内容
-        try {
-            String content = fileProcessingService.extractTextFromFileByPath(filePath);
-            if (content != null && !content.isEmpty()) {
-                fileContentCache.put(fileId, content);
-                return content;
+        int maxRetries = 3;
+        int retryDelayMs = 200; // 重试间隔 200ms
+
+        for (int retry = 0; retry < maxRetries; retry++) {
+            try {
+                String content = fileProcessingService.extractTextFromFileByPath(filePath);
+
+                // 检查是否解析成功（不包含错误标记）
+                if (content != null && !content.isEmpty() &&
+                        !content.startsWith("【文件解析失败") &&
+                        !content.startsWith("【文件不存在") &&
+                        !content.startsWith("【不支持的文件格式")) {
+
+                    fileContentCache.put(fileId, content);
+                    if (retry > 0) {
+                        log.info("文件读取成功，重试次数: {}/{}", retry + 1, maxRetries);
+                    }
+                    return content;
+                }
+
+                // 如果是解析失败但不是错误信息，也缓存
+                if (content != null && !content.isEmpty()) {
+                    log.warn("文件内容可能有问题: {}", content.substring(0, Math.min(100, content.length())));
+                }
+
+            } catch (Exception e) {
+                log.warn("读取文件失败，重试 {}/{}: fileId={}, error={}",
+                        retry + 1, maxRetries, fileId, e.getMessage());
             }
-        } catch (Exception e) {
-            log.error("读取文件内容失败: fileId={}", fileId, e);
+
+            // 最后一次重试失败，不再等待
+            if (retry < maxRetries - 1) {
+                try {
+                    Thread.sleep(retryDelayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    log.warn("文件读取重试被中断");
+                    break;
+                }
+            }
         }
 
+        log.error("文件读取最终失败: fileId={}, filePath={}", fileId, filePath);
         return null;
     }
 

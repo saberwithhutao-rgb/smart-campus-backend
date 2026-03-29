@@ -19,6 +19,7 @@ import net.sourceforge.tess4j.TesseractException;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.List;
@@ -443,8 +444,17 @@ public class FileProcessingService {
     }
 
     private String extractTextFromTxt(MultipartFile file) {
+        String[] encodings = {"UTF-8", "GBK", "GB2312", "GB18030", "ISO-8859-1"};
+
         try {
-            return new String(file.getBytes(), StandardCharsets.UTF_8);
+            byte[] bytes = file.getBytes();
+            for (String encoding : encodings) {
+                try {
+                    String content = new String(bytes, Charset.forName(encoding));
+                } catch (Exception e) {
+                }
+            }
+            return "【文件编码格式不支持，请转换为 UTF-8 格式后重试】";
         } catch (IOException e) {
             log.error("TXT解析失败", e);
             return "【TXT解析失败】";
@@ -452,12 +462,25 @@ public class FileProcessingService {
     }
 
     private String extractTextFromTxtFile(File file) {
-        try {
-            return Files.readString(file.toPath());
-        } catch (IOException e) {
-            log.error("TXT解析失败", e);
-            return "【TXT解析失败】";
+        // 按优先级尝试多种编码
+        String[] encodings = {"UTF-8", "GBK", "GB2312", "GB18030", "ISO-8859-1"};
+
+        for (String encoding : encodings) {
+            try {
+                byte[] bytes = Files.readAllBytes(file.toPath());
+                String content = new String(bytes, Charset.forName(encoding));
+                log.info("成功使用编码 {} 解析文件: {}", encoding, file.getName());
+                return content;
+
+            } catch (UnsupportedEncodingException e) {
+                log.warn("不支持的编码: {}", encoding);
+            } catch (Exception e) {
+                log.debug("使用编码 {} 解析失败: {}", encoding, e.getMessage());
+            }
         }
+
+        log.error("无法解析文件，尝试了所有编码: {}", file.getName());
+        return "【文件编码格式不支持，请转换为 UTF-8 格式后重试】";
     }
 
     /**

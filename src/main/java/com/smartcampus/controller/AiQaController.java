@@ -24,7 +24,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -954,7 +957,7 @@ public class AiQaController {
     }
 
     /**
-     * 辅助方法：保存学习文件
+     * 辅助方法：保存学习文件（确保文件完全写入）
      */
     private LearningFile saveLearningFile(MultipartFile file, String userId) throws Exception {
         LearningFile learningFile = new LearningFile();
@@ -968,9 +971,39 @@ public class AiQaController {
 
         // 保存文件到服务器
         String filePath = "/opt/smart-campus/uploads/" + learningFile.getFileName();
-        file.transferTo(new java.io.File(filePath));
-        learningFile.setFilePath(filePath);
+        File targetFile = new File(filePath);
 
+        try (InputStream inputStream = file.getInputStream();
+             FileOutputStream outputStream = new FileOutputStream(targetFile)) {
+
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.flush(); // 强制刷新到磁盘
+        }
+
+        int maxRetries = 5;
+        int retryCount = 0;
+        long expectedSize = file.getSize();
+
+        while (retryCount < maxRetries) {
+            if (targetFile.exists() && targetFile.length() == expectedSize) {
+                log.info("文件写入完成，大小: {} bytes, 重试次数: {}", targetFile.length(), retryCount);
+                break;
+            }
+            retryCount++;
+            log.debug("等待文件写入完成，当前大小: {}, 预期大小: {}, 重试: {}/{}",
+                    targetFile.exists() ? targetFile.length() : 0, expectedSize, retryCount, maxRetries);
+            Thread.sleep(100);
+        }
+
+        if (targetFile.length() != expectedSize) {
+            log.warn("文件可能未完全写入，当前大小: {}, 预期大小: {}", targetFile.length(), expectedSize);
+        }
+
+        learningFile.setFilePath(filePath);
         return learningFileRepository.save(learningFile);
     }
 
