@@ -252,10 +252,8 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
                 .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限删除"));
 
-        // 已完成计划不能删除
-        if ("completed".equals(plan.getStatus())) {
-            throw new BusinessException(403, "已完成计划不能删除");
-        }
+        studyTaskService.deleteTasksByPlanId(planId);
+        log.info("已删除计划关联的复习任务 - planId: {}", planId);
 
         studyPlanDao.delete(plan);
         log.info("学习计划删除成功 - id: {}", planId);
