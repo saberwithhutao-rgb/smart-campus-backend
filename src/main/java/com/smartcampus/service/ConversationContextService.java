@@ -46,7 +46,7 @@ public class ConversationContextService {
         List<Map<String, String>> messages = new ArrayList<>();
 
         // 1. 系统提示（包含用户文件摘要）
-        String systemPrompt = buildSystemPromptWithFiles(userId);
+        String systemPrompt = buildSystemPromptWithFiles(userId, sessionId);
         messages.add(Map.of("role", "system", "content", systemPrompt));
 
         // 2. 短期记忆：最近几轮完整对话
@@ -99,27 +99,65 @@ public class ConversationContextService {
     /**
      * 构建包含文件摘要的系统提示词
      */
-    private String buildSystemPromptWithFiles(Long userId) {
+    private String buildSystemPromptWithFiles(Long userId, String sessionId) {
         String basePrompt = """
-                你是智慧校园的个性化学习伴侣，负责解答学生关于学习、课程、校园生活等方面的问题。
-                
-                回答要求：
-                1. 专业、准确、友好
-                2. 如果用户上传了文件或提到了之前上传的文件，请基于文件内容回答
-                3. 如果资料不足，可以结合常识回答但需说明
-                4. 回答格式清晰，适当使用分段和重点标注
-                5. 如果用户的问题需要参考历史对话，请结合上下文回答
-                """;
+            你是智慧校园的个性化学习伴侣，负责解答学生关于学习、课程、校园生活等方面的问题。
+            
+            回答要求：
+            1. 专业、准确、友好
+            2. 如果用户上传了文件或提到了之前上传的文件，请基于文件内容回答
+            3. 如果资料不足，可以结合常识回答但需说明
+            4. 回答格式清晰，适当使用分段和重点标注
+            5. 如果用户的问题需要参考历史对话，请结合上下文回答
+            """;
 
-        // 获取用户的所有文件摘要
-        String filesSummary = fileSummaryService.getAllUserFilesSummary(userId);
+        // 只获取当前会话关联的文件摘要
+        String sessionFilesSummary = getSessionFilesSummary(userId, sessionId);
 
-        if (filesSummary != null && !filesSummary.isEmpty()) {
-            return basePrompt + "\n\n" + filesSummary + "\n\n" +
-                    "用户可能随时询问这些文件的内容，请根据文件摘要和实际内容回答。";
+        if (sessionFilesSummary != null && !sessionFilesSummary.isEmpty()) {
+            return basePrompt + "\n\n" + sessionFilesSummary + "\n\n" +
+                    "以上是当前对话中上传的文件，请根据这些文件内容回答。";
         }
 
         return basePrompt;
+    }
+
+    /**
+     * 获取当前会话关联的文件摘要
+     */
+    private String getSessionFilesSummary(Long userId, String sessionId) {
+        // 查询当前会话中所有涉及的文件ID
+        List<AiConversation> conversations = conversationRepository
+                .findByUserIdAndSessionIdOrderByCreatedAtAsc(userId, sessionId);
+
+        Set<Long> fileIds = new HashSet<>();
+        for (AiConversation conv : conversations) {
+            if (conv.getFileId() != null) {
+                fileIds.add(conv.getFileId());
+            }
+        }
+
+        if (fileIds.isEmpty()) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("当前对话中上传的文件：\n");
+
+        for (Long fileId : fileIds) {
+            Optional<LearningFile> fileOpt = learningFileRepository.findById(fileId);
+            if (fileOpt.isPresent()) {
+                LearningFile file = fileOpt.get();
+                sb.append("- ").append(file.getOriginalName());
+                if (file.getSummary() != null && !file.getSummary().isEmpty()) {
+                    sb.append("（摘要：").append(file.getSummary()).append("）\n");
+                } else {
+                    sb.append("\n");
+                }
+            }
+        }
+
+        return sb.toString();
     }
 
     /**

@@ -118,34 +118,6 @@ public class FileSummaryService {
     }
 
     /**
-     * 批量获取用户所有文件的摘要信息（用于系统prompt）
-     */
-    public String getAllUserFilesSummary(Long userId) {
-        List<LearningFile> files = learningFileRepository.findByUserIdOrderByUploadTimeDesc(userId);
-
-        if (files.isEmpty()) {
-            return null;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("用户的知识库文件列表：\n");
-
-        for (LearningFile file : files) {
-            sb.append("- ").append(file.getOriginalName());
-            sb.append("（").append(file.getFileType()).append("，");
-            sb.append(formatFileSize(file.getFileSize())).append("）\n");
-
-            // 如果有摘要，加上摘要
-            if (file.getSummary() != null && !file.getSummary().isEmpty()
-                    && !file.getSummary().startsWith("【")) {
-                sb.append("  摘要：").append(file.getSummary()).append("\n");
-            }
-        }
-
-        return sb.toString();
-    }
-
-    /**
      * 构建摘要生成提示词
      */
     private String buildSummaryPrompt(String fileName, String content) {
