@@ -12,4 +12,6 @@ public interface StudyPlanDetailRepository extends JpaRepository<StudyPlanDetail
     List<StudyPlanDetail> findByStudyPlanId(Long studyPlanId);
     // 按学习计划ID查找并按创建时间倒序
     List<StudyPlanDetail> findByStudyPlanIdOrderByCreatedAtDesc(Long studyPlanId);
+
+    void deleteByStudyPlanId(Long studyPlanId);
 }

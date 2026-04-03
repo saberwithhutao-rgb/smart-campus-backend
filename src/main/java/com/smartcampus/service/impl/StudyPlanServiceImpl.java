@@ -1,11 +1,13 @@
 package com.smartcampus.service.impl;
 
+import com.smartcampus.dao.ReviewSuggestionDao;
 import com.smartcampus.dao.StudyPlanDao;
 import com.smartcampus.dto.CreatePlanRequest;
 import com.smartcampus.dto.UpdatePlanRequest;
 import com.smartcampus.dto.PageResult;
 import com.smartcampus.entity.StudyPlan;
 import com.smartcampus.exception.BusinessException;
+import com.smartcampus.repository.StudyPlanDetailRepository;
 import com.smartcampus.service.StudyPlanService;
 import com.smartcampus.service.StudyTaskService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,8 @@ public class StudyPlanServiceImpl implements StudyPlanService {
 
     private final StudyPlanDao studyPlanDao;
     private final StudyTaskService studyTaskService;
+    private final StudyPlanDetailRepository studyPlanDetailRepository;
+    private final ReviewSuggestionDao reviewSuggestionDao;
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     /**
      * 校验日期格式
@@ -252,8 +256,14 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         StudyPlan plan = studyPlanDao.findByIdAndUserId(planId, userId)
                 .orElseThrow(() -> new BusinessException(404, "计划不存在或无权限删除"));
 
+        reviewSuggestionDao.deleteByPlanId(planId);
+        log.info("已删除计划关联的复习建议 - planId: {}", planId);
+
         studyTaskService.deleteTasksByPlanId(planId);
         log.info("已删除计划关联的复习任务 - planId: {}", planId);
+
+        studyPlanDetailRepository.deleteByStudyPlanId(Long.valueOf(planId));
+        log.info("已删除计划关联的学习计划详情 - planId: {}", planId);
 
         studyPlanDao.delete(plan);
         log.info("学习计划删除成功 - id: {}", planId);
@@ -308,5 +318,13 @@ public class StudyPlanServiceImpl implements StudyPlanService {
         });
 
         return studyPlanDao.save(plan);
+    }
+
+    public StudyPlanDetailRepository getStudyPlanDetailRepository() {
+        return studyPlanDetailRepository;
+    }
+
+    public ReviewSuggestionDao getReviewSuggestionDao() {
+        return reviewSuggestionDao;
     }
 }

@@ -27,4 +27,12 @@ public interface ReviewSuggestionDao extends JpaRepository<ReviewSuggestion, Lon
 
     @Query("SELECT COALESCE(MAX(s.version), 0) FROM ReviewSuggestion s WHERE s.taskId = :taskId")
     Integer getMaxVersion(@Param("taskId") Integer taskId);
+
+    @Modifying
+    @Transactional
+    void deleteByPlanId(Integer planId);
+
+    @Modifying
+    @Transactional
+    void deleteByTaskId(Integer taskId);
 }

@@ -1,6 +1,8 @@
 package com.smartcampus.service.impl;
 
+import com.smartcampus.dao.StudyPlanDao;
 import com.smartcampus.entity.StudyPlanDetail;
+import com.smartcampus.exception.BusinessException;
 import com.smartcampus.repository.StudyPlanDetailRepository;
 import com.smartcampus.service.QianWenService;
 import com.smartcampus.service.StudyPlanDetailService;
@@ -21,6 +23,7 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
 
     private final QianWenService qianWenService;
     private final StudyPlanDetailRepository studyPlanDetailRepository;
+    private final StudyPlanDao studyPlanDao;
 
     @Override
     @Transactional
@@ -45,6 +48,15 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
         } catch (Exception e) {
             log.error("AI服务调用失败: {}", e.getMessage(), e);
             throw new Exception("AI服务调用失败: " + e.getMessage());
+        }
+
+        if (!studyPlanDao.existsById(Math.toIntExact(studyPlanId))) {
+            log.info("学习计划已被删除，放弃保存生成的详情 - studyPlanId: {}", studyPlanId);
+            Map<String, Object> result = new HashMap<>();
+            result.put("plan", null);
+            result.put("detailId", null);
+            result.put("cancelled", true);
+            return result;
         }
 
         // 3. 保存到数据库
@@ -135,5 +147,9 @@ public class StudyPlanDetailServiceImpl implements StudyPlanDetailService {
             log.error("调用AI服务失败: {}", e.getMessage(), e);
             throw new Exception("AI服务调用失败: " + e.getMessage());
         }
+    }
+
+    public StudyPlanDao getStudyPlanDao() {
+        return studyPlanDao;
     }
 }
