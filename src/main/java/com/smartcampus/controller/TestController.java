@@ -514,12 +514,6 @@ public class TestController {
             // ========== 原有验证逻辑 ==========
 
             // 5. 验证必填字段
-            if (username.trim().isEmpty()) {
-                return errorResponse(400, "用户名不能为空");
-            }
-            if (password.length() < 6) {
-                return errorResponse(400, "密码长度至少6位");
-            }
             if (!isValidEmail(email)) {
                 return errorResponse(400, "邮箱格式不正确");
             }
@@ -553,16 +547,6 @@ public class TestController {
 
             // 验证成功后删除验证码
             redisTemplate.delete(redisKey);
-
-            // 检查用户名是否已存在
-            if (userRepository.existsByUsername(username)) {
-                return errorResponse(400, "用户名已存在");
-            }
-
-            // 检查邮箱是否已存在
-            if (userRepository.existsByEmail(email)) {
-                return errorResponse(400, "邮箱已注册");
-            }
 
             // 10. 创建新用户
             User user = new User();
